@@ -7,7 +7,13 @@ from getpass import getpass
 from typing import Any
 
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError, PhoneCodeExpiredError, PhoneCodeInvalidError, SessionPasswordNeededError
+from telethon.errors import (
+    FloodWaitError,
+    PhoneCodeExpiredError,
+    PhoneCodeInvalidError,
+    SendCodeUnavailableError,
+    SessionPasswordNeededError,
+)
 from telethon.sessions import StringSession
 
 from app.db.repositories import AccountRepository, ChatRepository, SettingsRepository
@@ -96,33 +102,38 @@ def _describe_sent_code(sent_code: Any) -> str:
 
 async def _send_login_code(client: TelegramClient, phone: str, use_sms: bool = False) -> Any:
     if use_sms:
-        try:
-            return await client.send_code_request(phone=phone, force_sms=True)
-        except TypeError:
-            # Some Telethon versions may not support force_sms.
-            return await client.send_code_request(phone=phone)
+        print("Команда sms: Telegram может проигнорировать SMS и отправить код в приложение.")
     return await client.send_code_request(phone=phone)
 
 
 async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
-    sent_code = await _send_login_code(client, phone, use_sms=False)
+    try:
+        sent_code = await _send_login_code(client, phone, use_sms=False)
+    except SendCodeUnavailableError:
+        raise RuntimeError(
+            "Telegram временно не может отправить код для этого номера. "
+            "Подождите несколько минут и повторите onboarding."
+        ) from None
     phone_code_hash = sent_code.phone_code_hash
     print(f"Код отправлен: {_describe_sent_code(sent_code)}.")
-    print("Если кода нет, введите resend для повтора или sms для попытки через SMS.")
+    print("Если кода нет, введите resend для повтора или sms для повторного запроса.")
 
     while True:
         login_code = _ask_text("Введите код подтверждения Telegram")
-        command = login_code.strip().lower()
+        command = login_code.strip().lower().lstrip("/")
 
-        if command in {"resend", "/resend"}:
-            sent_code = await _send_login_code(client, phone, use_sms=False)
-            phone_code_hash = sent_code.phone_code_hash
-            print(f"Код отправлен повторно: {_describe_sent_code(sent_code)}.")
-            continue
-        if command in {"sms", "/sms"}:
-            sent_code = await _send_login_code(client, phone, use_sms=True)
-            phone_code_hash = sent_code.phone_code_hash
-            print(f"Запрошена доставка кода: {_describe_sent_code(sent_code)}.")
+        if command in {"resend", "sms"}:
+            try:
+                sent_code = await _send_login_code(client, phone, use_sms=(command == "sms"))
+                phone_code_hash = sent_code.phone_code_hash
+                print(f"Код отправлен повторно: {_describe_sent_code(sent_code)}.")
+            except SendCodeUnavailableError:
+                print(
+                    "Telegram временно исчерпал варианты отправки кода для этого номера. "
+                    "Подождите 5-15 минут и попробуйте снова."
+                )
+            except FloodWaitError as exc:
+                print(f"Слишком много запросов кода. Подождите {exc.seconds} секунд.")
             continue
 
         try:
