@@ -34,7 +34,9 @@
   - generates comment
   - sends comment to linked discussion chat with fallback for `MsgIdInvalidError`
 - `app/telegram/join_manager.py`
-  - joins configured groups/chats
+  - joins configured channels/chats
+  - joins linked discussion groups when a target channel has one
+  - handles already-joined and flood-wait cases
   - uses per-account delay range for safer pacing
 - `app/comments/generator.py`
   - combines account prompt + post text

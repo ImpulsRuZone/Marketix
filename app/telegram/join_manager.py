@@ -5,6 +5,8 @@ import random
 from datetime import datetime, timezone
 
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError, UserAlreadyParticipantError
+from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelRequest
 
 from app.db.repositories import ChatRepository
 
@@ -15,18 +17,25 @@ class JoinManager:
 
     async def join_all(self, account_id: str, client: TelegramClient, min_delay: int, max_delay: int) -> None:
         account_chats = self.chats.list_account_chats(account_id)
-        for relation in account_chats:
+        for index, relation in enumerate(account_chats, 1):
             chat = relation.get("target_chats")
             if not chat:
                 continue
             if relation["status"] == "connected":
                 continue
 
+            label = f"[{index}/{len(account_chats)}] {chat.get('title') or chat.get('chat_url')}"
+            joined = False
             try:
-                await client.get_entity(chat["chat_url"])
-                # Joining mechanics can vary between public/private chats.
-                # Keep this explicit call in one place for easier extension.
-                await client(functions.channels.JoinChannelRequest(chat["chat_url"]))
+                entity = await client.get_entity(chat["chat_url"])
+                joined = await self._join_if_needed(client, entity)
+
+                full = await client(GetFullChannelRequest(entity))
+                linked_chat_id = full.full_chat.linked_chat_id
+                if linked_chat_id:
+                    linked_joined = await self._join_if_needed(client, linked_chat_id)
+                    joined = joined or linked_joined
+
                 self.chats.upsert_account_chat(
                     {
                         "id": relation["id"],
@@ -36,18 +45,35 @@ class JoinManager:
                         "error_message": None,
                     }
                 )
-            except Exception as exc:  # noqa: BLE001
+            except FloodWaitError as exc:
                 self.chats.upsert_account_chat(
                     {
                         "id": relation["id"],
                         "status": "failed",
                         "last_join_attempt_at": datetime.now(timezone.utc).isoformat(),
-                        "error_message": str(exc),
+                        "error_message": f"FloodWait {exc.seconds} seconds for {label}",
                     }
                 )
+                await asyncio.sleep(exc.seconds + 15)
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc)
+                status = "pending" if "successfully requested to join" in message else "failed"
+                self.chats.upsert_account_chat(
+                    {
+                        "id": relation["id"],
+                        "status": status,
+                        "last_join_attempt_at": datetime.now(timezone.utc).isoformat(),
+                        "error_message": message,
+                    }
+                )
+                joined = False
 
-            await asyncio.sleep(random.randint(min_delay, max_delay))
+            if joined:
+                await asyncio.sleep(random.randint(min_delay, max_delay))
 
-
-# Local import to keep telethon request namespace close to usage.
-from telethon.tl import functions  # noqa: E402
+    async def _join_if_needed(self, client: TelegramClient, entity) -> bool:
+        try:
+            await client(JoinChannelRequest(entity))
+            return True
+        except UserAlreadyParticipantError:
+            return False
