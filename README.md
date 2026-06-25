@@ -1,55 +1,80 @@
-Rustam
-AI Automation Engineer • Telegram Bot Developer • Voice AI & Business Automation
+# Neurocomment — мультиаккаунтный Telegram-бот
 
-Building AI-powered solutions for business automation, customer communication, lead generation, and sales operations.
+Бот автоматически читает посты в Telegram-каналах и публикует AI-комментарии от лица нескольких аккаунтов параллельно.
 
-About Me
+## Структура проекта
 
-I develop intelligent automation systems that help businesses reduce manual work, improve customer engagement, and streamline operations.
+```
+.
+├── app/
+│   ├── __init__.py
+│   ├── config.py          # Общие настройки + загрузка accounts.json
+│   ├── ai.py              # Генерация комментариев через OpenAI
+│   ├── db.py              # PostgreSQL (события и комментарии)
+│   ├── joiner.py          # Вступление в каналы
+│   ├── account_bot.py     # Логика одного аккаунта
+│   └── main.py            # Точка входа, запускает все аккаунты
+├── data/
+│   └── sessions/          # Сессии Telethon (по одной на аккаунт)
+├── accounts.json.example  # Пример файла аккаунтов
+├── .env.example           # Пример переменных окружения
+├── requirements.txt
+└── .gitignore
+```
 
-My focus includes:
+## Быстрый старт
 
-AI-powered Telegram bots
-Voice AI agents and automated calling systems
-Business process automation with n8n
-AI integrations using OpenAI and Claude
-Sales funnel automation and lead qualification
-API integrations and workflow automation
-Docker-based deployment on VPS infrastructure
-Technology Stack
-Core Competencies
-Voice AI & Automated Calling
-AI-powered voice assistants
-Automated outbound calling systems
-Voximplant integrations
-Conversational voice workflows
-Telegram & AI Solutions
-Telegram bot development
-AI assistants and agents
-Customer support automation
-Lead qualification systems
-Business Automation
-Workflow automation with n8n
-CRM integrations
-API integrations
-Process optimization
-Infrastructure
-Docker containerization
-VPS deployment and maintenance
-Linux administration
-Git & GitHub workflows
-Focus Areas
-Voice AI
-AI Agents
-Business Automation
-Workflow Automation
-Conversational AI
-Telegram Ecosystem
-Sales Automation
-Contact
+### 1. Установить зависимости
 
-Telegram: @XavierSa1
+```bash
+pip install -r requirements.txt
+```
 
-GitHub: github.com/ImpulsRuZone
+### 2. Настроить окружение
 
-Open to freelance projects, remote opportunities, and business automation consulting.
+```bash
+cp .env.example .env
+# Открыть .env и заполнить OPENAI_API_KEY, DATABASE_URL и прочее
+```
+
+### 3. Создать список аккаунтов
+
+```bash
+cp accounts.json.example accounts.json
+# Открыть accounts.json и заполнить api_id, api_hash, phone для каждого аккаунта
+```
+
+`api_id` и `api_hash` получаются на [my.telegram.org](https://my.telegram.org).
+
+Поле `channels` — список каналов для конкретного аккаунта.  
+Если оставить пустым (`[]`), используется глобальный список из `app/joiner.py`.
+
+### 4. Запустить
+
+```bash
+python -m app.main
+```
+
+При первом запуске Telethon запросит SMS-код для каждого нового аккаунта интерактивно.  
+После этого сессии сохраняются в `data/sessions/` и повторная авторизация не нужна.
+
+## Мультиаккаунт
+
+Добавьте столько записей в `accounts.json`, сколько нужно.  
+Каждый аккаунт работает независимо:
+
+- свой session-файл (`data/sessions/<name>.session`)
+- свой список каналов (или общий)
+- все аккаунты слушают каналы параллельно через `asyncio.gather`
+- каждый аккаунт логирует своё имя в БД (поле `account`)
+
+## База данных
+
+Таблицы создаются автоматически при первом запуске (если задан `DATABASE_URL`).
+
+| Таблица    | Назначение                        |
+|------------|-----------------------------------|
+| `events`   | Системные события (INFO/WARNING/ERROR) |
+| `comments` | Отправленные комментарии          |
+
+Оба содержат поле `account` — имя аккаунта из `accounts.json`.
