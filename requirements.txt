@@ -1,5 +1,6 @@
 telethon
 pysocks
+qrcode
 supabase
 openai
 pydantic

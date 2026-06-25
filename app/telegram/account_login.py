@@ -19,6 +19,7 @@ from telethon.errors import (
     PhoneNumberInvalidError,
     PhoneNumberUnoccupiedError,
     SendCodeUnavailableError,
+    SessionPasswordNeededError,
 )
 from telethon.sessions import StringSession
 
@@ -96,20 +97,17 @@ def _build_onboarding_session_name(phone: str) -> str:
     return str(session_dir / f"session_{digits}")
 
 
-async def _sign_in_with_start(client: TelegramClient, phone: str) -> None:
-    def code_callback() -> str:
-        return _ask_text("Введите код подтверждения Telegram")
-
+async def _sign_in_with_classic_start(client: TelegramClient, phone: str) -> None:
     def password_callback() -> str:
         return getpass("Введите пароль Telegram 2FA: ")
 
     print("Запрашиваю код авторизации Telegram...")
     print("Проверьте сервисный чат Telegram и архив чатов в приложении.")
+    print("Код будет запрошен встроенным механизмом Telethon, как в вашем рабочем скрипте.")
 
     try:
         await client.start(
-            phone=phone,
-            code_callback=code_callback,
+            phone=lambda: phone,
             password=password_callback,
             max_attempts=5,
         )
@@ -138,6 +136,31 @@ async def _sign_in_with_start(client: TelegramClient, phone: str) -> None:
         raise RuntimeError("Код подтверждения истек. Запустите onboarding заново.") from None
     except FloodWaitError as exc:
         raise RuntimeError(f"Слишком много попыток. Подождите {exc.seconds} секунд.") from None
+
+
+async def _sign_in_with_qr(client: TelegramClient) -> None:
+    print("Запускаю QR-авторизацию Telegram.")
+    print("Откройте Telegram на телефоне: Настройки -> Устройства -> Подключить устройство.")
+
+    await client.connect()
+    qr_login = await client.qr_login()
+
+    try:
+        import qrcode
+    except ImportError:
+        print("Пакет qrcode не установлен. Выполните: pip install -r requirements.txt")
+        print(f"QR URL: {qr_login.url}")
+    else:
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(qr_login.url)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+
+    try:
+        await qr_login.wait()
+    except SessionPasswordNeededError:
+        password = getpass("Введите пароль Telegram 2FA: ")
+        await client.sign_in(password=password)
 
 
 async def onboard_account_cli(
@@ -175,12 +198,17 @@ async def onboard_account_cli(
             "proxy_password": getpass("Пароль прокси (необязательно): ").strip() or None,
         }
 
+    use_qr_login = _ask_bool("Если код не приходит, использовать QR-вход вместо кода?")
+
     proxy = _build_runtime_proxy(proxy_cfg)
     session_name = _build_onboarding_session_name(phone)
     client = TelegramClient(session_name, api_id=api_id, api_hash=api_hash, proxy=proxy)
 
     try:
-        await _sign_in_with_start(client=client, phone=phone)
+        if use_qr_login:
+            await _sign_in_with_qr(client=client)
+        else:
+            await _sign_in_with_classic_start(client=client, phone=phone)
         session_string = StringSession.save(client.session)
     finally:
         await client.disconnect()
