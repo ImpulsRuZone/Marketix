@@ -47,7 +47,8 @@ pip install -r requirements.txt
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4o-mini
+MAX_COMMENT_LENGTH=200
 ```
 
 ## 3) Создание таблиц Supabase

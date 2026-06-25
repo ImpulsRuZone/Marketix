@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     supabase_url: str = Field(alias="SUPABASE_URL")
     supabase_service_role_key: str = Field(alias="SUPABASE_SERVICE_ROLE_KEY")
     openai_api_key: str = Field(alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    max_comment_length: int = Field(default=200, alias="MAX_COMMENT_LENGTH")
 
     comment_delay_min_seconds: int = Field(default=30, alias="COMMENT_DELAY_MIN_SECONDS")
     comment_delay_max_seconds: int = Field(default=180, alias="COMMENT_DELAY_MAX_SECONDS")

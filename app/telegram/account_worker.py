@@ -129,7 +129,7 @@ class AccountWorker:
         )
         await asyncio.sleep(delay_seconds)
 
-        generated_comment = self.generator.generate(post_text, self.account["gpt_prompt"])
+        generated_comment = await self.generator.generate(post_text, self.account["gpt_prompt"])
         comment_row = self.comments.create_comment(
             {
                 "account_id": self.account["id"],
