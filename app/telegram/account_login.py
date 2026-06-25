@@ -56,6 +56,12 @@ def _ask_int(question: str, default: int | None = None) -> int:
     return int(raw)
 
 
+def _build_account_name(phone: str) -> str:
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    short = digits[-4:] if len(digits) >= 4 else digits or "new"
+    return f"account_{short}"
+
+
 def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
     if not proxy_cfg or not proxy_cfg.get("proxy_enabled"):
         return None
@@ -94,7 +100,7 @@ async def onboard_account_cli(
     """
 
     phone = _ask_text("Введите номер телефона (международный формат)")
-    name = _ask_text("Введите имя аккаунта")
+    name = _build_account_name(phone)
     prompt = _ask_text("Введите промпт для этого аккаунта")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
