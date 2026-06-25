@@ -6,9 +6,11 @@
 2. **No proxy table**: proxy settings are kept per account in `accounts`.
 3. **Single shared tables with `account_id`** instead of one table per account.
 4. **Interactive onboarding** with strict login flow:
+   - account name
+   - per-account prompt
    - phone number
-   - proxy choice (yes/no) before connection
    - `api_id` + `api_hash`
+   - proxy choice (yes/no)
    - manual SMS/Telegram confirmation code
    - optional Telegram 2FA password
 5. **Per-account settings**:
@@ -26,10 +28,11 @@
   - `run-workers`: run all active accounts concurrently
 - `app/telegram/account_worker.py`
   - one Telethon client per account
-  - receives new messages/posts
+  - listens only configured target channels
+  - processes channel posts (`message.post`) with minimal text-length threshold
   - checks sleep/limits/percent
   - generates comment
-  - sends comment with randomized delay
+  - sends comment to linked discussion chat with fallback for `MsgIdInvalidError`
 - `app/telegram/join_manager.py`
   - joins configured groups/chats
   - uses per-account delay range for safer pacing

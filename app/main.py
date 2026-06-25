@@ -9,6 +9,7 @@ from app.db.supabase_client import get_supabase
 from app.logs.logger import AccountLogger
 from app.telegram.account_login import onboard_account_cli
 from app.telegram.account_worker import AccountWorker
+from app.telegram.join_manager import JoinManager
 
 
 async def run_onboarding() -> None:
@@ -24,9 +25,11 @@ async def run_workers() -> None:
     db = get_supabase()
     account_repo = AccountRepository(db)
     settings_repo = SettingsRepository(db)
+    chat_repo = ChatRepository(db)
     comments_repo = CommentRepository(db)
     logger = AccountLogger(LogRepository(db))
     generator = CommentGenerator()
+    join_manager = JoinManager(chat_repo)
 
     accounts = account_repo.list_active_accounts()
     tasks = []
@@ -34,7 +37,15 @@ async def run_workers() -> None:
         settings = settings_repo.get_settings(account["id"])
         if not settings.get("is_active", True):
             continue
-        worker = AccountWorker(account, settings, comments_repo, logger, generator)
+        worker = AccountWorker(
+            account=account,
+            account_settings=settings,
+            chats=chat_repo,
+            comments=comments_repo,
+            logger=logger,
+            generator=generator,
+            join_manager=join_manager,
+        )
         tasks.append(asyncio.create_task(worker.run()))
 
     if not tasks:

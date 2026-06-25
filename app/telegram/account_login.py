@@ -68,12 +68,6 @@ def _ask_int(question: str, default: int | None = None) -> int:
     return int(raw)
 
 
-def _build_account_name(phone: str) -> str:
-    digits = "".join(ch for ch in phone if ch.isdigit())
-    short = digits[-4:] if len(digits) >= 4 else digits or "new"
-    return f"account_{short}"
-
-
 def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
     if not proxy_cfg or not proxy_cfg.get("proxy_enabled"):
         return None
@@ -144,8 +138,6 @@ async def _sign_in_with_start(client: TelegramClient, phone: str) -> None:
         raise RuntimeError("Код подтверждения истек. Запустите onboarding заново.") from None
     except FloodWaitError as exc:
         raise RuntimeError(f"Слишком много попыток. Подождите {exc.seconds} секунд.") from None
-    except AuthRestartError:
-        raise RuntimeError("Telegram попросил перезапустить авторизацию. Запустите onboarding снова.") from None
 
 
 async def onboard_account_cli(
@@ -156,20 +148,24 @@ async def onboard_account_cli(
     """Interactive account onboarding flow.
 
     Order is intentionally strict:
-    1) phone number
-    2) proxy usage decision
-    3) api_id/api_hash
-    4) Telegram login code (manual)
-    5) optional 2FA password
-    6) account settings and target chats
+    1) account name
+    2) account prompt
+    3) phone number
+    4) api_id/api_hash
+    5) proxy usage decision
+    6) Telegram login code (manual)
+    7) optional 2FA password
+    8) account settings and target chats
     """
 
-    phone = _ask_text("Введите номер телефона (международный формат)")
-    name = _ask_text("Введите имя аккаунта", default=_build_account_name(phone))
+    name = _ask_text("Введите имя аккаунта")
     prompt = _ask_text("Введите промпт для этого аккаунта")
+    phone = _ask_text("Введите номер телефона (международный формат)")
+    api_id = _ask_int("Введите Telegram API ID")
+    api_hash = _ask_text("Введите Telegram API hash")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
-    if _ask_bool("Использовать прокси перед подключением к Telegram?"):
+    if _ask_bool("Использовать прокси?"):
         proxy_cfg = {
             "proxy_enabled": True,
             "proxy_type": _ask_text("Тип прокси [socks5/socks4/http]").lower(),
@@ -178,9 +174,6 @@ async def onboard_account_cli(
             "proxy_username": _ask_text("Логин прокси (необязательно)") or None,
             "proxy_password": getpass("Пароль прокси (необязательно): ").strip() or None,
         }
-
-    api_id = _ask_int("Введите Telegram API ID")
-    api_hash = _ask_text("Введите Telegram API hash")
 
     proxy = _build_runtime_proxy(proxy_cfg)
     session_name = _build_onboarding_session_name(phone)

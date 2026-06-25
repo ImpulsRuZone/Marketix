@@ -16,7 +16,9 @@ class JoinManager:
     async def join_all(self, account_id: str, client: TelegramClient, min_delay: int, max_delay: int) -> None:
         account_chats = self.chats.list_account_chats(account_id)
         for relation in account_chats:
-            chat = relation["target_chats"]
+            chat = relation.get("target_chats")
+            if not chat:
+                continue
             if relation["status"] == "connected":
                 continue
 
