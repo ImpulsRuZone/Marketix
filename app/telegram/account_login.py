@@ -23,6 +23,7 @@ from telethon.errors import (
 )
 from telethon.sessions import StringSession
 
+from app.auth import create_client
 from app.db.repositories import AccountRepository, ChatRepository, SettingsRepository
 from app.settings.settings_manager import SettingsManager
 
@@ -86,32 +87,32 @@ def _ask_required_int(question: str) -> int:
             print("Введите число.")
 
 
-def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
-    if not proxy_cfg or not proxy_cfg.get("proxy_enabled"):
-        return None
-
-    import socks
-
-    proxy_type = proxy_cfg["proxy_type"].lower()
-    proxy_map = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
-    if proxy_type not in proxy_map:
-        raise ValueError("proxy_type must be socks5/socks4/http")
-
-    return (
-        proxy_map[proxy_type],
-        proxy_cfg["proxy_host"],
-        int(proxy_cfg["proxy_port"]),
-        True,
-        proxy_cfg.get("proxy_username"),
-        proxy_cfg.get("proxy_password"),
-    )
-
-
 def _build_onboarding_session_name(phone: str) -> str:
     digits = "".join(ch for ch in phone if ch.isdigit()) or "new"
-    session_dir = Path("data")
-    session_dir.mkdir(parents=True, exist_ok=True)
-    return str(session_dir / f"session_{digits}")
+    return digits
+
+
+def _build_acc_config(
+    session_name: str,
+    api_id: int,
+    api_hash: str,
+    proxy_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    proxy = None
+    if proxy_cfg.get("proxy_enabled"):
+        proxy = {
+            "proxy_type": proxy_cfg.get("proxy_type"),
+            "addr": proxy_cfg.get("proxy_host"),
+            "port": proxy_cfg.get("proxy_port"),
+            "username": proxy_cfg.get("proxy_username"),
+            "password": proxy_cfg.get("proxy_password"),
+        }
+    return {
+        "session_name": session_name,
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "proxy": proxy,
+    }
 
 
 async def _sign_in_with_classic_start(client: TelegramClient) -> None:
@@ -237,9 +238,9 @@ async def onboard_account_cli(
 
     use_qr_login = _ask_bool("Если код не приходит, использовать QR-вход вместо кода?")
 
-    proxy = _build_runtime_proxy(proxy_cfg)
     session_name = _build_onboarding_session_name(phone)
-    client = TelegramClient(session_name, api_id=api_id, api_hash=api_hash, proxy=proxy)
+    acc_config = _build_acc_config(session_name, api_id, api_hash, proxy_cfg)
+    client = create_client(acc_config)
 
     try:
         if use_qr_login:

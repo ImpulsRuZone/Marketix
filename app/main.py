@@ -61,10 +61,10 @@ async def run_workers() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Мультиаккаунтный Telegram-комментатор")
-    parser.add_argument("command", choices=["onboard", "run-workers", "test-auth"])
+    parser.add_argument("command", choices=["onboard", "add-account", "run-workers", "test-auth"])
     args = parser.parse_args()
 
-    if args.command == "onboard":
+    if args.command in {"onboard", "add-account"}:
         asyncio.run(run_onboarding())
     elif args.command == "test-auth":
         asyncio.run(run_auth_test())
