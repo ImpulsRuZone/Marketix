@@ -8,9 +8,16 @@ from typing import Any
 
 from telethon import TelegramClient
 from telethon.errors import (
+    ApiIdInvalidError,
+    AuthRestartError,
     FloodWaitError,
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
+    PhoneNumberBannedError,
+    PhoneNumberFloodError,
+    PhoneNumberInvalidError,
+    PhoneNumberUnoccupiedError,
+    RpcError,
     SendCodeUnavailableError,
     SessionPasswordNeededError,
 )
@@ -92,12 +99,19 @@ def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
 def _describe_sent_code(sent_code: Any) -> str:
     code_type_name = type(getattr(sent_code, "type", None)).__name__.lower()
     if "app" in code_type_name:
-        return "внутри приложения Telegram (чат 'Telegram')"
-    if "sms" in code_type_name:
-        return "по SMS"
-    if "call" in code_type_name:
-        return "через звонок"
-    return "в Telegram"
+        method = "внутри приложения Telegram (чат 'Telegram')"
+    elif "sms" in code_type_name:
+        method = "по SMS"
+    elif "call" in code_type_name:
+        method = "через звонок"
+    else:
+        method = "в Telegram"
+
+    timeout = getattr(sent_code, "timeout", None)
+    next_type = getattr(sent_code, "next_type", None)
+    next_type_name = type(next_type).__name__ if next_type is not None else "нет"
+    timeout_part = f", повтор через {timeout} сек" if timeout else ""
+    return f"{method}{timeout_part}, следующий тип: {next_type_name}"
 
 
 async def _send_login_code(client: TelegramClient, phone: str, use_sms: bool = False) -> Any:
@@ -109,6 +123,20 @@ async def _send_login_code(client: TelegramClient, phone: str, use_sms: bool = F
 async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
     try:
         sent_code = await _send_login_code(client, phone, use_sms=False)
+    except ApiIdInvalidError:
+        raise RuntimeError("Неверный API ID или API hash. Проверьте данные из my.telegram.org.") from None
+    except PhoneNumberInvalidError:
+        raise RuntimeError("Неверный формат телефона. Используйте международный формат, например +79991234567.") from None
+    except PhoneNumberUnoccupiedError:
+        raise RuntimeError("Этот номер не зарегистрирован в Telegram.") from None
+    except PhoneNumberBannedError:
+        raise RuntimeError("Номер заблокирован в Telegram. Авторизация через API невозможна.") from None
+    except PhoneNumberFloodError:
+        raise RuntimeError(
+            "Слишком много попыток для этого номера. Telegram временно ограничил отправку кода."
+        ) from None
+    except AuthRestartError:
+        raise RuntimeError("Telegram попросил перезапустить авторизацию. Запустите onboarding снова.") from None
     except SendCodeUnavailableError:
         raise RuntimeError(
             "Telegram временно не может отправить код для этого номера. "
@@ -117,6 +145,7 @@ async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
     phone_code_hash = sent_code.phone_code_hash
     print(f"Код отправлен: {_describe_sent_code(sent_code)}.")
     print("Если кода нет, введите resend для повтора или sms для повторного запроса.")
+    print("Подсказка: проверьте архив чатов и сервисный чат Telegram на телефоне/ПК.")
 
     while True:
         login_code = _ask_text("Введите код подтверждения Telegram")
@@ -146,10 +175,16 @@ async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
         except FloodWaitError as exc:
             print(f"Слишком много попыток. Подождите {exc.seconds} секунд и попробуйте снова.")
             raise
+        except AuthRestartError:
+            print("Telegram попросил перезапустить авторизацию. Запустите onboarding снова.")
+            raise
         except SessionPasswordNeededError:
             password = getpass("Введите пароль Telegram 2FA: ")
             await client.sign_in(password=password)
             return
+        except RpcError as exc:
+            print(f"Ошибка Telegram API: {exc.__class__.__name__} ({exc}).")
+            raise
 
 
 async def onboard_account_cli(
