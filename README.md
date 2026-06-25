@@ -10,7 +10,7 @@
 
 ## Стек
 
-- Python 3.11+
+- Python 3.10+
 - Telethon
 - Supabase
 - OpenAI API
@@ -33,8 +33,9 @@ docs/
 ## 1) Установка
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -58,7 +59,7 @@ OPENAI_MODEL=gpt-4.1-mini
 ## 4) Онбординг аккаунта
 
 ```bash
-python -m app.main onboard
+python3 -m app.main onboard
 ```
 
 Во время onboarding ввод идет в нужном порядке:
@@ -74,7 +75,7 @@ python -m app.main onboard
 ## 5) Запуск воркеров
 
 ```bash
-python -m app.main run-workers
+python3 -m app.main run-workers
 ```
 
 Будет поднят отдельный Telethon-клиент для каждого активного аккаунта.
@@ -82,3 +83,17 @@ python -m app.main run-workers
 ## Важно
 
 Используйте только в легитимных сценариях (свои/разрешенные чаты и каналы), с аккуратными лимитами и аудитом.
+
+## Troubleshooting
+
+### UnicodeDecodeError при вводе prompt на русском
+
+Если видите ошибку `UnicodeDecodeError` при вводе текста на кириллице:
+
+1. Убедитесь, что у вас свежая версия кода (в этом проекте уже есть fallback-декодирование ввода).
+2. На VPS выставьте UTF-8 locale перед запуском:
+
+```bash
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+```

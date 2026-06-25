@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import locale
+import sys
 from datetime import datetime
 from getpass import getpass
 from typing import Any
@@ -12,14 +14,45 @@ from app.db.repositories import AccountRepository, ChatRepository, SettingsRepos
 from app.settings.settings_manager import SettingsManager
 
 
+def _decode_user_input(raw: bytes) -> str:
+    encodings: list[str] = []
+    if sys.stdin.encoding:
+        encodings.append(sys.stdin.encoding)
+    preferred = locale.getpreferredencoding(False)
+    if preferred:
+        encodings.append(preferred)
+    encodings.extend(["utf-8", "cp1251"])
+
+    tried: set[str] = set()
+    for encoding in encodings:
+        if encoding in tried:
+            continue
+        tried.add(encoding)
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def _ask_text(question: str, default: str | None = None) -> str:
+    suffix = f" (default: {default})" if default is not None else ""
+    print(f"{question}{suffix}: ", end="", flush=True)
+    raw = sys.stdin.buffer.readline()
+    if not raw:
+        raise EOFError(f"No input provided for '{question}'")
+    value = _decode_user_input(raw).strip()
+    if not value and default is not None:
+        return default
+    return value
+
+
 def _ask_bool(question: str) -> bool:
-    return input(f"{question} [y/N]: ").strip().lower() in {"y", "yes"}
+    return _ask_text(f"{question} [y/N]", default="n").lower() in {"y", "yes"}
 
 
 def _ask_int(question: str, default: int | None = None) -> int:
-    raw = input(f"{question}{f' (default: {default})' if default is not None else ''}: ").strip()
-    if not raw and default is not None:
-        return default
+    raw = _ask_text(question, default=str(default) if default is not None else None)
     return int(raw)
 
 
@@ -60,23 +93,23 @@ async def onboard_account_cli(
     6) account settings and target chats
     """
 
-    phone = input("Phone number (international format): ").strip()
-    name = input("Account display name: ").strip()
-    prompt = input("Per-account GPT prompt: ").strip()
+    phone = _ask_text("Phone number (international format)")
+    name = _ask_text("Account display name")
+    prompt = _ask_text("Per-account GPT prompt")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
     if _ask_bool("Use proxy before Telegram connection?"):
         proxy_cfg = {
             "proxy_enabled": True,
-            "proxy_type": input("Proxy type [socks5/socks4/http]: ").strip().lower(),
-            "proxy_host": input("Proxy host: ").strip(),
+            "proxy_type": _ask_text("Proxy type [socks5/socks4/http]").lower(),
+            "proxy_host": _ask_text("Proxy host"),
             "proxy_port": _ask_int("Proxy port"),
-            "proxy_username": input("Proxy username (optional): ").strip() or None,
+            "proxy_username": _ask_text("Proxy username (optional)") or None,
             "proxy_password": getpass("Proxy password (optional): ").strip() or None,
         }
 
     api_id = _ask_int("Telegram API ID")
-    api_hash = input("Telegram API hash: ").strip()
+    api_hash = _ask_text("Telegram API hash")
 
     proxy = _build_runtime_proxy(proxy_cfg)
     client = TelegramClient(StringSession(), api_id=api_id, api_hash=api_hash, proxy=proxy)
@@ -84,7 +117,7 @@ async def onboard_account_cli(
     await client.connect()
     try:
         await client.send_code_request(phone=phone)
-        login_code = input("Telegram login code: ").strip()
+        login_code = _ask_text("Telegram login code")
         try:
             await client.sign_in(phone=phone, code=login_code)
         except SessionPasswordNeededError:
@@ -112,9 +145,9 @@ async def onboard_account_cli(
 
     daily_comment_percent = _ask_int("daily_comment_percent [0-100]", default=30)
     max_comments_per_day = _ask_int("max_comments_per_day", default=20)
-    sleep_start_time = input("sleep_start_time [HH:MM], e.g. 01:00: ").strip() or "01:00"
-    sleep_end_time = input("sleep_end_time [HH:MM], e.g. 08:00: ").strip() or "08:00"
-    timezone = input("timezone, e.g. Europe/Moscow (default UTC): ").strip() or "UTC"
+    sleep_start_time = _ask_text("sleep_start_time [HH:MM], e.g. 01:00", default="01:00")
+    sleep_end_time = _ask_text("sleep_end_time [HH:MM], e.g. 08:00", default="08:00")
+    timezone = _ask_text("timezone, e.g. Europe/Moscow", default="UTC")
     join_delay_min = _ask_int("join_delay_min_seconds", default=120)
     join_delay_max = _ask_int("join_delay_max_seconds", default=600)
     comment_delay_min = _ask_int("comment_delay_min_seconds", default=30)
@@ -140,7 +173,7 @@ async def onboard_account_cli(
         }
     )
 
-    target_chats = input("Target chats (comma-separated links/usernames): ").strip()
+    target_chats = _ask_text("Target chats (comma-separated links/usernames)", default="")
     for item in [x.strip() for x in target_chats.split(",") if x.strip()]:
         chat = chat_repo.upsert_target_chat({"chat_url": item, "is_active": True})
         chat_repo.upsert_account_chat(
