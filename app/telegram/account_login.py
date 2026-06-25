@@ -4,6 +4,7 @@ import locale
 import sys
 from datetime import datetime
 from getpass import getpass
+from pathlib import Path
 from typing import Any
 
 from telethon import TelegramClient
@@ -18,20 +19,11 @@ from telethon.errors import (
     PhoneNumberInvalidError,
     PhoneNumberUnoccupiedError,
     SendCodeUnavailableError,
-    SessionPasswordNeededError,
 )
 from telethon.sessions import StringSession
 
 from app.db.repositories import AccountRepository, ChatRepository, SettingsRepository
 from app.settings.settings_manager import SettingsManager
-
-try:
-    from telethon.errors import RpcError
-except ImportError:
-    try:
-        from telethon.errors import RPCError as RpcError
-    except ImportError:
-        from telethon.errors.rpcbaseerrors import RPCError as RpcError
 
 
 def _decode_user_input(raw: bytes) -> str:
@@ -103,33 +95,30 @@ def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
     )
 
 
-def _describe_sent_code(sent_code: Any) -> str:
-    code_type_name = type(getattr(sent_code, "type", None)).__name__.lower()
-    if "app" in code_type_name:
-        method = "внутри приложения Telegram (чат 'Telegram')"
-    elif "sms" in code_type_name:
-        method = "по SMS"
-    elif "call" in code_type_name:
-        method = "через звонок"
-    else:
-        method = "в Telegram"
-
-    timeout = getattr(sent_code, "timeout", None)
-    next_type = getattr(sent_code, "next_type", None)
-    next_type_name = type(next_type).__name__ if next_type is not None else "нет"
-    timeout_part = f", повтор через {timeout} сек" if timeout else ""
-    return f"{method}{timeout_part}, следующий тип: {next_type_name}"
+def _build_onboarding_session_name(phone: str) -> str:
+    digits = "".join(ch for ch in phone if ch.isdigit()) or "new"
+    session_dir = Path("data")
+    session_dir.mkdir(parents=True, exist_ok=True)
+    return str(session_dir / f"session_{digits}")
 
 
-async def _send_login_code(client: TelegramClient, phone: str, use_sms: bool = False) -> Any:
-    if use_sms:
-        print("Команда sms: Telegram может проигнорировать SMS и отправить код в приложение.")
-    return await client.send_code_request(phone=phone)
+async def _sign_in_with_start(client: TelegramClient, phone: str) -> None:
+    def code_callback() -> str:
+        return _ask_text("Введите код подтверждения Telegram")
 
+    def password_callback() -> str:
+        return getpass("Введите пароль Telegram 2FA: ")
 
-async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
+    print("Запрашиваю код авторизации Telegram...")
+    print("Проверьте сервисный чат Telegram и архив чатов в приложении.")
+
     try:
-        sent_code = await _send_login_code(client, phone, use_sms=False)
+        await client.start(
+            phone=phone,
+            code_callback=code_callback,
+            password=password_callback,
+            max_attempts=5,
+        )
     except ApiIdInvalidError:
         raise RuntimeError("Неверный API ID или API hash. Проверьте данные из my.telegram.org.") from None
     except PhoneNumberInvalidError:
@@ -149,49 +138,14 @@ async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
             "Telegram временно не может отправить код для этого номера. "
             "Подождите несколько минут и повторите onboarding."
         ) from None
-    phone_code_hash = sent_code.phone_code_hash
-    print(f"Код отправлен: {_describe_sent_code(sent_code)}.")
-    print("Если кода нет, введите resend для повтора или sms для повторного запроса.")
-    print("Подсказка: проверьте архив чатов и сервисный чат Telegram на телефоне/ПК.")
-
-    while True:
-        login_code = _ask_text("Введите код подтверждения Telegram")
-        command = login_code.strip().lower().lstrip("/")
-
-        if command in {"resend", "sms"}:
-            try:
-                sent_code = await _send_login_code(client, phone, use_sms=(command == "sms"))
-                phone_code_hash = sent_code.phone_code_hash
-                print(f"Код отправлен повторно: {_describe_sent_code(sent_code)}.")
-            except SendCodeUnavailableError:
-                print(
-                    "Telegram временно исчерпал варианты отправки кода для этого номера. "
-                    "Подождите 5-15 минут и попробуйте снова."
-                )
-            except FloodWaitError as exc:
-                print(f"Слишком много запросов кода. Подождите {exc.seconds} секунд.")
-            continue
-
-        try:
-            await client.sign_in(phone=phone, code=login_code, phone_code_hash=phone_code_hash)
-            return
-        except PhoneCodeInvalidError:
-            print("Неверный код. Проверьте сообщение от Telegram и попробуйте снова.")
-        except PhoneCodeExpiredError:
-            print("Код истек. Введите /resend для нового кода.")
-        except FloodWaitError as exc:
-            print(f"Слишком много попыток. Подождите {exc.seconds} секунд и попробуйте снова.")
-            raise
-        except AuthRestartError:
-            print("Telegram попросил перезапустить авторизацию. Запустите onboarding снова.")
-            raise
-        except SessionPasswordNeededError:
-            password = getpass("Введите пароль Telegram 2FA: ")
-            await client.sign_in(password=password)
-            return
-        except RpcError as exc:
-            print(f"Ошибка Telegram API: {exc.__class__.__name__} ({exc}).")
-            raise
+    except PhoneCodeInvalidError:
+        raise RuntimeError("Введен неверный код подтверждения Telegram.") from None
+    except PhoneCodeExpiredError:
+        raise RuntimeError("Код подтверждения истек. Запустите onboarding заново.") from None
+    except FloodWaitError as exc:
+        raise RuntimeError(f"Слишком много попыток. Подождите {exc.seconds} секунд.") from None
+    except AuthRestartError:
+        raise RuntimeError("Telegram попросил перезапустить авторизацию. Запустите onboarding снова.") from None
 
 
 async def onboard_account_cli(
@@ -229,12 +183,12 @@ async def onboard_account_cli(
     api_hash = _ask_text("Введите Telegram API hash")
 
     proxy = _build_runtime_proxy(proxy_cfg)
-    client = TelegramClient(StringSession(), api_id=api_id, api_hash=api_hash, proxy=proxy)
+    session_name = _build_onboarding_session_name(phone)
+    client = TelegramClient(session_name, api_id=api_id, api_hash=api_hash, proxy=proxy)
 
-    await client.connect()
     try:
-        await _sign_in_with_retries(client=client, phone=phone)
-        session_string = client.session.save()
+        await _sign_in_with_start(client=client, phone=phone)
+        session_string = StringSession.save(client.session)
     finally:
         await client.disconnect()
 
