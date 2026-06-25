@@ -108,18 +108,18 @@ async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
     sent_code = await _send_login_code(client, phone, use_sms=False)
     phone_code_hash = sent_code.phone_code_hash
     print(f"Код отправлен: {_describe_sent_code(sent_code)}.")
-    print("Если кода нет, введите /resend для повтора или /sms для попытки через SMS.")
+    print("Если кода нет, введите resend для повтора или sms для попытки через SMS.")
 
     while True:
         login_code = _ask_text("Введите код подтверждения Telegram")
         command = login_code.strip().lower()
 
-        if command == "/resend":
-            sent_code = await client.resend_code_request(phone, phone_code_hash)
+        if command in {"resend", "/resend"}:
+            sent_code = await _send_login_code(client, phone, use_sms=False)
             phone_code_hash = sent_code.phone_code_hash
             print(f"Код отправлен повторно: {_describe_sent_code(sent_code)}.")
             continue
-        if command == "/sms":
+        if command in {"sms", "/sms"}:
             sent_code = await _send_login_code(client, phone, use_sms=True)
             phone_code_hash = sent_code.phone_code_hash
             print(f"Запрошена доставка кода: {_describe_sent_code(sent_code)}.")
