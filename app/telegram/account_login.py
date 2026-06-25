@@ -60,6 +60,14 @@ def _ask_text(question: str, default: str | None = None) -> str:
     return value
 
 
+def _ask_required_text(question: str) -> str:
+    while True:
+        value = _ask_text(question)
+        if value:
+            return value
+        print("Поле обязательно. Введите значение.")
+
+
 def _ask_bool(question: str) -> bool:
     return _ask_text(f"{question} [д/н]", default="н").lower() in {"y", "yes", "д", "да"}
 
@@ -67,6 +75,15 @@ def _ask_bool(question: str) -> bool:
 def _ask_int(question: str, default: int | None = None) -> int:
     raw = _ask_text(question, default=str(default) if default is not None else None)
     return int(raw)
+
+
+def _ask_required_int(question: str) -> int:
+    while True:
+        raw = _ask_required_text(question)
+        try:
+            return int(raw)
+        except ValueError:
+            print("Введите число.")
 
 
 def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
@@ -97,17 +114,17 @@ def _build_onboarding_session_name(phone: str) -> str:
     return str(session_dir / f"session_{digits}")
 
 
-async def _sign_in_with_classic_start(client: TelegramClient, phone: str) -> None:
+async def _sign_in_with_classic_start(client: TelegramClient) -> None:
     def password_callback() -> str:
         return getpass("Введите пароль Telegram 2FA: ")
 
     print("Запрашиваю код авторизации Telegram...")
     print("Проверьте сервисный чат Telegram и архив чатов в приложении.")
-    print("Код будет запрошен встроенным механизмом Telethon, как в вашем рабочем скрипте.")
+    print("Сейчас Telethon сам спросит номер телефона и код, как в вашем рабочем скрипте.")
+    print("Важно: введите тот же номер, который указали выше.")
 
     try:
         await client.start(
-            phone=lambda: phone,
             password=password_callback,
             max_attempts=5,
         )
@@ -163,6 +180,26 @@ async def _sign_in_with_qr(client: TelegramClient) -> None:
         await client.sign_in(password=password)
 
 
+async def test_classic_auth_cli() -> None:
+    """Minimal Telethon auth check, intentionally close to the old working script."""
+
+    api_id = _ask_required_int("Введите Telegram API ID")
+    api_hash = _ask_required_text("Введите Telegram API hash")
+    session_name = "data/session_auth_test"
+    Path("data").mkdir(parents=True, exist_ok=True)
+
+    client = TelegramClient(session_name, api_id, api_hash)
+    try:
+        print("Запускаю минимальный тест авторизации Telethon.")
+        print("Дальше Telethon сам спросит номер телефона и код.")
+        await client.start()
+        me = await client.get_me()
+        username = getattr(me, "username", None)
+        print(f"Авторизация успешна: {getattr(me, 'first_name', '')} @{username or 'без username'}")
+    finally:
+        await client.disconnect()
+
+
 async def onboard_account_cli(
     account_repo: AccountRepository,
     settings_repo: SettingsRepository,
@@ -181,11 +218,11 @@ async def onboard_account_cli(
     8) account settings and target chats
     """
 
-    name = _ask_text("Введите имя аккаунта")
-    prompt = _ask_text("Введите промпт для этого аккаунта")
-    phone = _ask_text("Введите номер телефона (международный формат)")
-    api_id = _ask_int("Введите Telegram API ID")
-    api_hash = _ask_text("Введите Telegram API hash")
+    name = _ask_required_text("Введите имя аккаунта")
+    prompt = _ask_required_text("Введите промпт для этого аккаунта")
+    phone = _ask_required_text("Введите номер телефона (международный формат)")
+    api_id = _ask_required_int("Введите Telegram API ID")
+    api_hash = _ask_required_text("Введите Telegram API hash")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
     if _ask_bool("Использовать прокси?"):
@@ -208,7 +245,7 @@ async def onboard_account_cli(
         if use_qr_login:
             await _sign_in_with_qr(client=client)
         else:
-            await _sign_in_with_classic_start(client=client, phone=phone)
+            await _sign_in_with_classic_start(client=client)
         session_string = StringSession.save(client.session)
     finally:
         await client.disconnect()

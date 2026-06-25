@@ -80,6 +80,23 @@ python3 -m app.main onboard
 Авторизация выполняется через встроенный режим `Telethon.start()` (как в классическом рабочем сценарии с файловой сессией).
 Если код не приходит на VPS, выберите QR-вход: Telegram -> Настройки -> Устройства -> Подключить устройство.
 
+### Минимальный тест авторизации
+
+Если код не приходит, сначала проверьте самый простой сценарий без Supabase и onboarding:
+
+```bash
+python3 -m app.main test-auth
+```
+
+Этот режим максимально близок к старому рабочему коду:
+
+```python
+client = TelegramClient("data/session_auth_test", api_id, api_hash)
+await client.start()
+```
+
+Если в `test-auth` код тоже не приходит, проблема не в Supabase/onboarding, а в Telegram-лимите, IP/VPS, номере или API-приложении.
+
 ## 5) Запуск воркеров
 
 ```bash
