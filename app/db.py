@@ -40,7 +40,7 @@ async def _ensure_tables(pool: asyncpg.Pool) -> None:
 
 
 async def log_event(
-    pool: asyncpg.Pool,
+    pool,
     level: str,
     event_type: str,
     message: str,
@@ -49,6 +49,8 @@ async def log_event(
     wait_seconds: Optional[int] = None,
     account: str = "",
 ) -> None:
+    if pool is None:
+        return
     try:
         async with pool.acquire() as conn:
             await conn.execute(
@@ -64,13 +66,15 @@ async def log_event(
 
 
 async def log_comment(
-    pool: asyncpg.Pool,
+    pool,
     channel_name: str,
     channel_username: str,
     post_text: str,
     comment: str,
     account: str = "",
 ) -> None:
+    if pool is None:
+        return
     try:
         async with pool.acquire() as conn:
             await conn.execute(
