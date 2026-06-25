@@ -7,7 +7,7 @@ from getpass import getpass
 from typing import Any
 
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError
+from telethon.errors import FloodWaitError, PhoneCodeExpiredError, PhoneCodeInvalidError, SessionPasswordNeededError
 from telethon.sessions import StringSession
 
 from app.db.repositories import AccountRepository, ChatRepository, SettingsRepository
@@ -83,6 +83,64 @@ def _build_runtime_proxy(proxy_cfg: dict[str, Any] | None) -> tuple | None:
     )
 
 
+def _describe_sent_code(sent_code: Any) -> str:
+    code_type_name = type(getattr(sent_code, "type", None)).__name__.lower()
+    if "app" in code_type_name:
+        return "внутри приложения Telegram (чат 'Telegram')"
+    if "sms" in code_type_name:
+        return "по SMS"
+    if "call" in code_type_name:
+        return "через звонок"
+    return "в Telegram"
+
+
+async def _send_login_code(client: TelegramClient, phone: str, use_sms: bool = False) -> Any:
+    if use_sms:
+        try:
+            return await client.send_code_request(phone=phone, force_sms=True)
+        except TypeError:
+            # Some Telethon versions may not support force_sms.
+            return await client.send_code_request(phone=phone)
+    return await client.send_code_request(phone=phone)
+
+
+async def _sign_in_with_retries(client: TelegramClient, phone: str) -> None:
+    sent_code = await _send_login_code(client, phone, use_sms=False)
+    phone_code_hash = sent_code.phone_code_hash
+    print(f"Код отправлен: {_describe_sent_code(sent_code)}.")
+    print("Если кода нет, введите /resend для повтора или /sms для попытки через SMS.")
+
+    while True:
+        login_code = _ask_text("Введите код подтверждения Telegram")
+        command = login_code.strip().lower()
+
+        if command == "/resend":
+            sent_code = await client.resend_code_request(phone, phone_code_hash)
+            phone_code_hash = sent_code.phone_code_hash
+            print(f"Код отправлен повторно: {_describe_sent_code(sent_code)}.")
+            continue
+        if command == "/sms":
+            sent_code = await _send_login_code(client, phone, use_sms=True)
+            phone_code_hash = sent_code.phone_code_hash
+            print(f"Запрошена доставка кода: {_describe_sent_code(sent_code)}.")
+            continue
+
+        try:
+            await client.sign_in(phone=phone, code=login_code, phone_code_hash=phone_code_hash)
+            return
+        except PhoneCodeInvalidError:
+            print("Неверный код. Проверьте сообщение от Telegram и попробуйте снова.")
+        except PhoneCodeExpiredError:
+            print("Код истек. Введите /resend для нового кода.")
+        except FloodWaitError as exc:
+            print(f"Слишком много попыток. Подождите {exc.seconds} секунд и попробуйте снова.")
+            raise
+        except SessionPasswordNeededError:
+            password = getpass("Введите пароль Telegram 2FA: ")
+            await client.sign_in(password=password)
+            return
+
+
 async def onboard_account_cli(
     account_repo: AccountRepository,
     settings_repo: SettingsRepository,
@@ -122,14 +180,7 @@ async def onboard_account_cli(
 
     await client.connect()
     try:
-        await client.send_code_request(phone=phone)
-        login_code = _ask_text("Введите код подтверждения Telegram")
-        try:
-            await client.sign_in(phone=phone, code=login_code)
-        except SessionPasswordNeededError:
-            password = getpass("Введите пароль Telegram 2FA: ")
-            await client.sign_in(password=password)
-
+        await _sign_in_with_retries(client=client, phone=phone)
         session_string = client.session.save()
     finally:
         await client.disconnect()
