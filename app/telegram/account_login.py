@@ -17,7 +17,6 @@ from telethon.errors import (
     PhoneNumberFloodError,
     PhoneNumberInvalidError,
     PhoneNumberUnoccupiedError,
-    RpcError,
     SendCodeUnavailableError,
     SessionPasswordNeededError,
 )
@@ -25,6 +24,14 @@ from telethon.sessions import StringSession
 
 from app.db.repositories import AccountRepository, ChatRepository, SettingsRepository
 from app.settings.settings_manager import SettingsManager
+
+try:
+    from telethon.errors import RpcError
+except ImportError:
+    try:
+        from telethon.errors import RPCError as RpcError
+    except ImportError:
+        from telethon.errors.rpcbaseerrors import RPCError as RpcError
 
 
 def _decode_user_input(raw: bytes) -> str:
