@@ -100,7 +100,7 @@ async def onboard_account_cli(
     """
 
     phone = _ask_text("Введите номер телефона (международный формат)")
-    name = _build_account_name(phone)
+    name = _ask_text("Введите имя аккаунта", default=_build_account_name(phone))
     prompt = _ask_text("Введите промпт для этого аккаунта")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
