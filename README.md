@@ -1,55 +1,84 @@
-Rustam
-AI Automation Engineer • Telegram Bot Developer • Voice AI & Business Automation
+# Multi-account Telegram Comment Bot (Python + Telethon + Supabase)
 
-Building AI-powered solutions for business automation, customer communication, lead generation, and sales operations.
+Каркас проекта для мультиаккаунтного Telegram-бота с:
 
-About Me
+- отдельными настройками на каждый аккаунт;
+- обязательным шагом выбора прокси перед подключением;
+- ручным вводом кода подтверждения Telegram;
+- настройкой лимитов, сна и задержек;
+- логированием и хранением комментариев в Supabase.
 
-I develop intelligent automation systems that help businesses reduce manual work, improve customer engagement, and streamline operations.
+## Стек
 
-My focus includes:
+- Python 3.11+
+- Telethon
+- Supabase
+- OpenAI API
 
-AI-powered Telegram bots
-Voice AI agents and automated calling systems
-Business process automation with n8n
-AI integrations using OpenAI and Claude
-Sales funnel automation and lead qualification
-API integrations and workflow automation
-Docker-based deployment on VPS infrastructure
-Technology Stack
-Core Competencies
-Voice AI & Automated Calling
-AI-powered voice assistants
-Automated outbound calling systems
-Voximplant integrations
-Conversational voice workflows
-Telegram & AI Solutions
-Telegram bot development
-AI assistants and agents
-Customer support automation
-Lead qualification systems
-Business Automation
-Workflow automation with n8n
-CRM integrations
-API integrations
-Process optimization
-Infrastructure
-Docker containerization
-VPS deployment and maintenance
-Linux administration
-Git & GitHub workflows
-Focus Areas
-Voice AI
-AI Agents
-Business Automation
-Workflow Automation
-Conversational AI
-Telegram Ecosystem
-Sales Automation
-Contact
+## Структура
 
-Telegram: @XavierSa1
+```text
+app/
+  main.py
+  config.py
+  comments/
+  db/
+  logs/
+  settings/
+  telegram/
+docs/
+  ARCHITECTURE.md
+```
 
-GitHub: github.com/ImpulsRuZone
+## 1) Установка
 
-Open to freelance projects, remote opportunities, and business automation consulting.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## 2) Переменные окружения
+
+Создайте `.env`:
+
+```env
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+## 3) Создание таблиц Supabase
+
+Выполните SQL из файла:
+
+`app/db/schema.sql`
+
+## 4) Онбординг аккаунта
+
+```bash
+python -m app.main onboard
+```
+
+Во время onboarding ввод идет в нужном порядке:
+
+1. Номер телефона
+2. Использовать прокси или нет
+3. API ID / API hash
+4. Код подтверждения Telegram (вручную)
+5. Пароль 2FA (если включен)
+6. Настройки аккаунта (daily percent, max/day, sleep, delays, prompt)
+7. Группы/чаты для работы
+
+## 5) Запуск воркеров
+
+```bash
+python -m app.main run-workers
+```
+
+Будет поднят отдельный Telethon-клиент для каждого активного аккаунта.
+
+## Важно
+
+Используйте только в легитимных сценариях (свои/разрешенные чаты и каналы), с аккуратными лимитами и аудитом.
