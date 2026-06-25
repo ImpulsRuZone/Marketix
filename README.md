@@ -72,6 +72,8 @@ python3 -m app.main onboard
 6. Настройки аккаунта (daily percent, max/day, sleep, delays, prompt)
 7. Группы/чаты для работы
 
+Все интерактивные вопросы onboarding выводятся на русском языке.
+
 ## 5) Запуск воркеров
 
 ```bash

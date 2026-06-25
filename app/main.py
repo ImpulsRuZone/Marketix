@@ -17,7 +17,7 @@ async def run_onboarding() -> None:
     settings_repo = SettingsRepository(db)
     chat_repo = ChatRepository(db)
     account_id = await onboard_account_cli(account_repo, settings_repo, chat_repo)
-    print(f"Account onboarded successfully: {account_id}")
+    print(f"Аккаунт успешно добавлен: {account_id}")
 
 
 async def run_workers() -> None:
@@ -38,14 +38,14 @@ async def run_workers() -> None:
         tasks.append(asyncio.create_task(worker.run()))
 
     if not tasks:
-        print("No active accounts found.")
+        print("Активные аккаунты не найдены.")
         return
 
     await asyncio.gather(*tasks)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Multi-account Telegram commenter")
+    parser = argparse.ArgumentParser(description="Мультиаккаунтный Telegram-комментатор")
     parser.add_argument("command", choices=["onboard", "run-workers"])
     args = parser.parse_args()
 

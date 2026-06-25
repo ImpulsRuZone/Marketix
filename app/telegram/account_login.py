@@ -36,11 +36,11 @@ def _decode_user_input(raw: bytes) -> str:
 
 
 def _ask_text(question: str, default: str | None = None) -> str:
-    suffix = f" (default: {default})" if default is not None else ""
+    suffix = f" (по умолчанию: {default})" if default is not None else ""
     print(f"{question}{suffix}: ", end="", flush=True)
     raw = sys.stdin.buffer.readline()
     if not raw:
-        raise EOFError(f"No input provided for '{question}'")
+        raise EOFError(f"Не получен ввод для поля: {question}")
     value = _decode_user_input(raw).strip()
     if not value and default is not None:
         return default
@@ -48,7 +48,7 @@ def _ask_text(question: str, default: str | None = None) -> str:
 
 
 def _ask_bool(question: str) -> bool:
-    return _ask_text(f"{question} [y/N]", default="n").lower() in {"y", "yes"}
+    return _ask_text(f"{question} [д/н]", default="н").lower() in {"y", "yes", "д", "да"}
 
 
 def _ask_int(question: str, default: int | None = None) -> int:
@@ -93,23 +93,23 @@ async def onboard_account_cli(
     6) account settings and target chats
     """
 
-    phone = _ask_text("Phone number (international format)")
-    name = _ask_text("Account display name")
-    prompt = _ask_text("Per-account GPT prompt")
+    phone = _ask_text("Введите номер телефона (международный формат)")
+    name = _ask_text("Введите имя аккаунта")
+    prompt = _ask_text("Введите промпт для этого аккаунта")
 
     proxy_cfg: dict[str, Any] = {"proxy_enabled": False}
-    if _ask_bool("Use proxy before Telegram connection?"):
+    if _ask_bool("Использовать прокси перед подключением к Telegram?"):
         proxy_cfg = {
             "proxy_enabled": True,
-            "proxy_type": _ask_text("Proxy type [socks5/socks4/http]").lower(),
-            "proxy_host": _ask_text("Proxy host"),
-            "proxy_port": _ask_int("Proxy port"),
-            "proxy_username": _ask_text("Proxy username (optional)") or None,
-            "proxy_password": getpass("Proxy password (optional): ").strip() or None,
+            "proxy_type": _ask_text("Тип прокси [socks5/socks4/http]").lower(),
+            "proxy_host": _ask_text("Хост прокси"),
+            "proxy_port": _ask_int("Порт прокси"),
+            "proxy_username": _ask_text("Логин прокси (необязательно)") or None,
+            "proxy_password": getpass("Пароль прокси (необязательно): ").strip() or None,
         }
 
-    api_id = _ask_int("Telegram API ID")
-    api_hash = _ask_text("Telegram API hash")
+    api_id = _ask_int("Введите Telegram API ID")
+    api_hash = _ask_text("Введите Telegram API hash")
 
     proxy = _build_runtime_proxy(proxy_cfg)
     client = TelegramClient(StringSession(), api_id=api_id, api_hash=api_hash, proxy=proxy)
@@ -117,11 +117,11 @@ async def onboard_account_cli(
     await client.connect()
     try:
         await client.send_code_request(phone=phone)
-        login_code = _ask_text("Telegram login code")
+        login_code = _ask_text("Введите код подтверждения Telegram")
         try:
             await client.sign_in(phone=phone, code=login_code)
         except SessionPasswordNeededError:
-            password = getpass("Telegram 2FA password: ")
+            password = getpass("Введите пароль Telegram 2FA: ")
             await client.sign_in(password=password)
 
         session_string = client.session.save()
@@ -143,15 +143,15 @@ async def onboard_account_cli(
     )
     account_id = account["id"]
 
-    daily_comment_percent = _ask_int("daily_comment_percent [0-100]", default=30)
-    max_comments_per_day = _ask_int("max_comments_per_day", default=20)
-    sleep_start_time = _ask_text("sleep_start_time [HH:MM], e.g. 01:00", default="01:00")
-    sleep_end_time = _ask_text("sleep_end_time [HH:MM], e.g. 08:00", default="08:00")
-    timezone = _ask_text("timezone, e.g. Europe/Moscow", default="UTC")
-    join_delay_min = _ask_int("join_delay_min_seconds", default=120)
-    join_delay_max = _ask_int("join_delay_max_seconds", default=600)
-    comment_delay_min = _ask_int("comment_delay_min_seconds", default=30)
-    comment_delay_max = _ask_int("comment_delay_max_seconds", default=180)
+    daily_comment_percent = _ask_int("Процент комментирования в день [0-100]", default=30)
+    max_comments_per_day = _ask_int("Максимум комментариев в день", default=20)
+    sleep_start_time = _ask_text("Время начала сна [HH:MM], например 01:00", default="01:00")
+    sleep_end_time = _ask_text("Время окончания сна [HH:MM], например 08:00", default="08:00")
+    timezone = _ask_text("Часовой пояс, например Europe/Moscow", default="UTC")
+    join_delay_min = _ask_int("Минимальная задержка входа в чаты (сек)", default=120)
+    join_delay_max = _ask_int("Максимальная задержка входа в чаты (сек)", default=600)
+    comment_delay_min = _ask_int("Минимальная задержка перед комментарием (сек)", default=30)
+    comment_delay_max = _ask_int("Максимальная задержка перед комментарием (сек)", default=180)
 
     SettingsManager.validate_comment_limits(daily_comment_percent, max_comments_per_day)
     SettingsManager.validate_delays(join_delay_min, join_delay_max, "join_delay")
@@ -173,7 +173,7 @@ async def onboard_account_cli(
         }
     )
 
-    target_chats = _ask_text("Target chats (comma-separated links/usernames)", default="")
+    target_chats = _ask_text("Целевые чаты (ссылки/username через запятую)", default="")
     for item in [x.strip() for x in target_chats.split(",") if x.strip()]:
         chat = chat_repo.upsert_target_chat({"chat_url": item, "is_active": True})
         chat_repo.upsert_account_chat(
