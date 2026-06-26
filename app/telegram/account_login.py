@@ -3,23 +3,18 @@ Interactive CLI for adding a new Telegram account.
 
 Usage:
     python -m app.telegram.account_login
-
-Flow:
-    1. Enter account name (label)
-    2. Enter phone number
-    3. Use proxy? → if yes, choose type and enter details
-    4. Enter api_id
-    5. Enter api_hash
-    6. Enter GPT prompt (or use default)
-    7. Connect to Telegram → request SMS/call code
-    8. Enter confirmation code
-    9. If 2FA enabled → enter password
-    10. Save session_string + account to DB
 """
 
 import asyncio
+import io
 import sys
 import logging
+
+# Force UTF-8 for stdin/stdout to avoid encoding issues on non-UTF-8 terminals
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+if hasattr(sys.stdin, 'buffer'):
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', errors='replace')
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -32,54 +27,35 @@ from app.logs.logger import setup_logging
 logger = logging.getLogger(__name__)
 
 
-def _read_line() -> str:
-    """Read a line from stdin, handling encoding issues gracefully."""
-    try:
-        line = sys.stdin.readline()
-        if isinstance(line, bytes):
-            line = line.decode("utf-8", errors="ignore")
-        return line.strip()
-    except UnicodeDecodeError:
-        return sys.stdin.buffer.readline().decode("utf-8", errors="ignore").strip()
-
-
 def _ask(prompt: str, default: str = "") -> str:
-    print(prompt, end="", flush=True)
-    val = _read_line()
+    val = input(prompt).strip()
     return val if val else default
 
 
 def _ask_int(prompt: str) -> int:
     while True:
-        print(prompt, end="", flush=True)
-        val = _read_line()
         try:
-            return int(val)
+            return int(input(prompt).strip())
         except ValueError:
             print("  Введите целое число.")
 
 
 def _ask_bool(prompt: str) -> bool:
-    print(prompt, end="", flush=True)
-    val = _read_line().lower()
+    val = input(prompt).strip().lower()
     return val in ("y", "yes", "д", "да", "1")
 
 
 def _ask_choice(prompt: str, choices: list) -> str:
-    """Shows a numbered menu and returns the selected value."""
     print(prompt)
     for i, choice in enumerate(choices, 1):
         print(f"  {i}) {choice}")
     while True:
-        print(f"Выбери [1-{len(choices)}]: ", end="", flush=True)
-        val = _read_line()
         try:
-            idx = int(val) - 1
+            idx = int(input(f"Выбери [1-{len(choices)}]: ").strip()) - 1
             if 0 <= idx < len(choices):
                 return choices[idx]
         except ValueError:
-            if val in choices:
-                return val
+            pass
         print(f"  Введи число от 1 до {len(choices)}")
 
 
@@ -90,7 +66,6 @@ def _collect_proxy() -> dict:
     proxy_port = _ask_int("Port (например 1080): ")
     proxy_username = _ask("Username (Enter — пропустить): ") or None
     proxy_password = _ask("Password (Enter — пропустить): ") or None
-
     return {
         "proxy_enabled":  True,
         "proxy_type":     proxy_type,
@@ -174,7 +149,7 @@ async def add_account() -> None:
             **proxy_data,
         )
         await update_session_string(pool, account["id"], session_string)
-        print(f"\n✓ Аккаунт сохранён. ID: {account['id']}")
+        print(f"\n Аккаунт сохранён. ID: {account['id']}")
         print("  Запусти бота: python3 -m app.main\n")
     finally:
         await close_pool()
