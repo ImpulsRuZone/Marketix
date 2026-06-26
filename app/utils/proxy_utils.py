@@ -1,30 +1,19 @@
 """
 Build Telethon-compatible proxy config from account record.
-
-Telethon supports two proxy backends:
-  - python-socks (preferred, async-native) — expects a dict with string proxy_type
-  - PySocks (legacy) — expects a tuple with socks.SOCKS5 integer constant
-
-We always build the dict format; Telethon handles both.
 """
 
-from typing import Optional
+import logging
+from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def build_proxy(account) -> Optional[dict]:
     """
-    Returns a proxy dict for Telethon if proxy_enabled is True,
-    otherwise returns None.
+    Returns a proxy dict for Telethon if proxy_enabled is True.
 
     Dict format (python-socks / Telethon):
-        {
-            'proxy_type': 'socks5' | 'socks4' | 'http',
-            'addr':       host,
-            'port':       port,
-            'username':   username or None,
-            'password':   password or None,
-            'rdns':       True,
-        }
+        proxy_type, addr, port, username, password, rdns
     """
     if not account["proxy_enabled"]:
         return None
@@ -41,3 +30,46 @@ def build_proxy(account) -> Optional[dict]:
         "password":   account["proxy_password"] or None,
         "rdns":       True,
     }
+
+
+def proxy_label(proxy: dict) -> str:
+    """Human-readable proxy string without password."""
+    user = proxy.get("username")
+    auth = f"{user}@" if user else ""
+    return f"{proxy['proxy_type']}://{auth}{proxy['addr']}:{proxy['port']}"
+
+
+def verify_proxy_backend() -> Tuple[bool, str]:
+    """
+    Telethon needs python-socks with asyncio extra for async proxy.
+    Returns (ok, message).
+    """
+    try:
+        import python_socks  # noqa: F401
+    except ImportError:
+        return False, "python-socks не установлен — proxy будет проигнорирован"
+
+    try:
+        import python_socks.async_.asyncio  # noqa: F401
+        return True, "python-socks[asyncio] OK — Telethon будет использовать proxy"
+    except ImportError:
+        return False, (
+            "Установлен python-socks без asyncio. "
+            "Выполни: pip3 install 'python-socks[asyncio]'"
+        )
+
+
+def log_proxy_usage(account_name: str, proxy: Optional[dict]) -> None:
+    """Log proxy configuration before Telethon connect."""
+    if not proxy:
+        logger.info("[%s] Подключение напрямую (без proxy)", account_name)
+        return
+
+    ok, backend_msg = verify_proxy_backend()
+    label = proxy_label(proxy)
+    logger.info("[%s] Proxy: %s", account_name, label)
+    logger.info("[%s] %s", account_name, backend_msg)
+    if not ok:
+        logger.warning(
+            "[%s] Proxy скорее всего НЕ будет использован Telethon!", account_name
+        )

@@ -6,7 +6,7 @@ Session is stored as a StringSession (saved in the DB, not on disk).
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from app.utils.proxy_utils import build_proxy
+from app.utils.proxy_utils import build_proxy, log_proxy_usage
 
 
 def create_client(account) -> TelegramClient:
@@ -18,6 +18,8 @@ def create_client(account) -> TelegramClient:
     """
     session = StringSession(account["session_string"] or "")
     proxy = build_proxy(account) if account["proxy_enabled"] else None
+    name = account.get("name") or str(account.get("id", "?"))[:8]
+    log_proxy_usage(name, proxy)
 
     client = TelegramClient(
         session,

@@ -191,8 +191,16 @@ async def add_account() -> None:
     session = StringSession()
     proxy   = None
     if use_proxy:
-        from app.utils.proxy_utils import build_proxy
+        from app.utils.proxy_utils import build_proxy, proxy_label, verify_proxy_backend
         proxy = build_proxy({**proxy_data, "proxy_enabled": True})
+        ok_backend, backend_msg = verify_proxy_backend()
+        print(f"  [PROXY] Маршрут: {proxy_label(proxy)} -> Telegram", flush=True)
+        print(f"  [PROXY] {backend_msg}", flush=True)
+        if not ok_backend:
+            cont = _ask_bool("  Proxy не будет работать. Продолжить? [y/n]: ")
+            if not cont:
+                print("Отменено.", flush=True)
+                return
 
     client = TelegramClient(session, api_id, api_hash, proxy=proxy)
 
