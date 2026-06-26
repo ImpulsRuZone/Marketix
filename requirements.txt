@@ -4,3 +4,4 @@ asyncpg
 python-dotenv
 pytz
 PySocks
+python-socks
