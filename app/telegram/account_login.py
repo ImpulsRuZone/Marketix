@@ -93,19 +93,29 @@ async def _test_proxy(proxy_type: str, host: str, port: int,
 
 def _test_proxy_sync(proxy_type: str, host: str, port: int,
                      username=None, password=None) -> bool:
+    """Test proxy by opening a TCP connection to Telegram DC1 through it."""
     try:
         import socks
-    except ImportError:
-        print("  [!] PySocks не установлен: pip3 install PySocks", flush=True)
-        return False
-    try:
         type_map = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
         s = socks.socksocket()
-        s.set_proxy(type_map.get(proxy_type, socks.SOCKS5),
+        s.set_proxy(type_map.get(proxy_type.lower(), socks.SOCKS5),
                     host, port, True, username, password)
         s.settimeout(10)
-        s.connect(("149.154.167.51", 443))   # Telegram DC1
+        s.connect(("149.154.167.51", 443))
         s.close()
+        return True
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"  [!] Ошибка (PySocks): {e}", flush=True)
+        return False
+
+    # Fallback: plain TCP to proxy host to at least check it's reachable
+    try:
+        import socket
+        s = socket.create_connection((host, port), timeout=10)
+        s.close()
+        print("  [~] Порт proxy открыт, но маршрут через него не проверен.", flush=True)
         return True
     except Exception as e:
         print(f"  [!] Ошибка: {e}", flush=True)
