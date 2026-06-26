@@ -1,4 +1,6 @@
 telethon
 openai
-python-dotenv
 asyncpg
+python-dotenv
+pytz
+PySocks

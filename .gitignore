@@ -1,7 +1,8 @@
 .env
-accounts.json
-data/sessions/
 __pycache__/
 *.pyc
+*.pyo
 *.session
 *.session-journal
+data/
+.DS_Store

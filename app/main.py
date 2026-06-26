@@ -1,46 +1,50 @@
 """
-Точка входа. Загружает все аккаунты из accounts.json
-и запускает их параллельно.
+Entry point. Loads all active accounts from the DB and runs them in parallel.
+
+Usage:
+    python -m app.main
+
+To add a new account first:
+    python -m app.telegram.account_login
 """
 
 import asyncio
 import logging
 
-from app.config import load_accounts, DATABASE_URL
-from app.db import get_pool
-from app.account_bot import AccountBot
+from app.config import DATABASE_URL
+from app.database.supabase_client import init_pool, close_pool
+from app.database.repositories import get_active_accounts
+from app.telegram.account_worker import AccountWorker
+from app.logs.logger import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
-async def run_account(bot: AccountBot) -> None:
-    """Запускает один аккаунт с перезапуском при неожиданном отключении."""
-    while True:
-        try:
-            await bot.start()
-        except Exception as e:
-            logger.error(f"[{bot.cfg.name}] Упал с ошибкой: {e}. Перезапуск через 30 сек...")
-            await asyncio.sleep(30)
-
-
 async def main() -> None:
-    accounts = load_accounts("accounts.json")
-    logger.info(f"Загружено аккаунтов: {len(accounts)}")
+    setup_logging()
 
-    pool = None
-    if DATABASE_URL:
-        pool = await get_pool(DATABASE_URL)
-        logger.info("Подключение к БД установлено")
-    else:
-        logger.warning("DATABASE_URL не задан — логирование в БД отключено")
+    if not DATABASE_URL:
+        logger.critical("DATABASE_URL is not set. Check your .env file.")
+        return
 
-    bots = [AccountBot(cfg, pool) for cfg in accounts]
+    pool = await init_pool(DATABASE_URL)
 
-    await asyncio.gather(*(run_account(bot) for bot in bots))
+    try:
+        accounts = await get_active_accounts(pool)
+        if not accounts:
+            logger.warning(
+                "No active accounts found in DB. "
+                "Add one with: python -m app.telegram.account_login"
+            )
+            return
+
+        logger.info(f"Loaded {len(accounts)} active account(s)")
+
+        workers = [AccountWorker(account, pool) for account in accounts]
+        await asyncio.gather(*(w.run() for w in workers))
+
+    finally:
+        await close_pool()
 
 
 if __name__ == "__main__":
