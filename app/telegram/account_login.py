@@ -2,12 +2,19 @@
 Interactive CLI for adding a new Telegram account.
 
 Usage:
-    PYTHONIOENCODING=utf-8 python3 -m app.telegram.account_login
+    python3 -m app.telegram.account_login
+
+Flow:
+    1. Account name
+    2. Proxy settings + connection test
+    3. GPT prompt
+    4. Phone, api_id, api_hash
+    5. Telegram auth (code + optional 2FA)
+    6. Save to DB
 """
 
 import asyncio
 import logging
-import os
 import sys
 
 from telethon import TelegramClient
@@ -20,12 +27,25 @@ from app.logs.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
+# ──────────────────────────────────────────────
+# Low-level input helpers (bypass encoding issues)
+# ──────────────────────────────────────────────
+
+def _readline() -> str:
+    """Read a line from stdin robustly, regardless of terminal encoding."""
+    raw = sys.stdin.buffer.readline()
+    for enc in ("utf-8", "cp1251", "latin-1"):
+        try:
+            return raw.decode(enc).strip()
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1", errors="replace").strip()
+
 
 def _ask(prompt: str, default: str = "") -> str:
-    try:
-        val = input(prompt).strip()
-    except UnicodeDecodeError:
-        val = ""
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    val = _readline()
     return val if val else default
 
 
@@ -35,17 +55,17 @@ def _ask_int(prompt: str) -> int:
         try:
             return int(raw)
         except ValueError:
-            print("  Введите целое число.")
+            print("  Введите целое число.", flush=True)
 
 
 def _ask_bool(prompt: str) -> bool:
     val = _ask(prompt).lower()
-    return val.startswith("y") or val.startswith("д") or val == "1"
+    return val in ("y", "yes", "1", "д", "да") or val.startswith("y") or val.startswith("д")
 
 
 def _ask_choice(prompt: str, choices: list) -> str:
     while True:
-        print(prompt, flush=True)
+        print(f"\n{prompt}", flush=True)
         for i, c in enumerate(choices, 1):
             print(f"  {i}) {c}", flush=True)
         raw = _ask(f"Выбери [1-{len(choices)}]: ")
@@ -59,34 +79,79 @@ def _ask_choice(prompt: str, choices: list) -> str:
         print(f"  Нужно число от 1 до {len(choices)}", flush=True)
 
 
-def _collect_proxy() -> dict:
-    print("\n--- Настройки proxy ---", flush=True)
-    proxy_type = _ask_choice("Тип proxy:", ["socks5", "socks4", "http"])
-    proxy_host = _ask("Host (например 1.2.3.4 или domain): ")
-    proxy_port = _ask_int("Port (например 1080): ")
-    proxy_username = _ask("Username (Enter — пропустить): ") or None
-    proxy_password = _ask("Password (Enter — пропустить): ") or None
-    return {
-        "proxy_enabled":  True,
-        "proxy_type":     proxy_type,
-        "proxy_host":     proxy_host,
-        "proxy_port":     proxy_port,
-        "proxy_username": proxy_username,
-        "proxy_password": proxy_password,
-    }
+# ──────────────────────────────────────────────
+# Proxy test
+# ──────────────────────────────────────────────
 
+async def _test_proxy(proxy_type: str, host: str, port: int,
+                      username=None, password=None) -> bool:
+    """Tests TCP connectivity to Telegram through the proxy."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _test_proxy_sync,
+                                      proxy_type, host, port, username, password)
+
+
+def _test_proxy_sync(proxy_type: str, host: str, port: int,
+                     username=None, password=None) -> bool:
+    try:
+        import socks
+    except ImportError:
+        print("  [!] PySocks не установлен: pip3 install PySocks", flush=True)
+        return False
+    try:
+        type_map = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
+        s = socks.socksocket()
+        s.set_proxy(type_map.get(proxy_type, socks.SOCKS5),
+                    host, port, True, username, password)
+        s.settimeout(10)
+        s.connect(("149.154.167.51", 443))   # Telegram DC1
+        s.close()
+        return True
+    except Exception as e:
+        print(f"  [!] Ошибка: {e}", flush=True)
+        return False
+
+
+# ──────────────────────────────────────────────
+# Main flow
+# ──────────────────────────────────────────────
 
 async def add_account() -> None:
     setup_logging()
     print("\n=== Добавление нового Telegram-аккаунта ===\n", flush=True)
 
-    name  = _ask("Название аккаунта (например account1): ", "account1")
-    phone = _ask("Номер телефона (например +79001234567): ")
+    # 1. Account name
+    name = _ask("Название аккаунта (например account1): ", "account1")
 
+    # 2. Proxy
     use_proxy = _ask_bool("Использовать proxy? [y/n]: ")
 
     if use_proxy:
-        proxy_data = _collect_proxy()
+        print("\n--- Настройки proxy ---", flush=True)
+        proxy_type = _ask_choice("Тип proxy:", ["socks5", "socks4", "http"])
+        proxy_host = _ask("Host (IP или домен): ")
+        proxy_port = _ask_int("Port: ")
+        proxy_username = _ask("Username (Enter — пропустить): ") or None
+        proxy_password = _ask("Password (Enter — пропустить): ") or None
+
+        print("\nТестирую подключение через proxy...", flush=True)
+        ok = await _test_proxy(proxy_type, proxy_host, proxy_port, proxy_username, proxy_password)
+        if ok:
+            print("  [OK] Proxy работает — соединение с Telegram установлено.", flush=True)
+        else:
+            print("  [FAIL] Proxy недоступен. Продолжить всё равно? [y/n]: ", end="", flush=True)
+            if not _ask_bool(""):
+                print("Отменено.", flush=True)
+                return
+
+        proxy_data = {
+            "proxy_enabled":  True,
+            "proxy_type":     proxy_type,
+            "proxy_host":     proxy_host,
+            "proxy_port":     proxy_port,
+            "proxy_username": proxy_username,
+            "proxy_password": proxy_password,
+        }
     else:
         print("  Proxy отключён.", flush=True)
         proxy_data = {
@@ -98,14 +163,20 @@ async def add_account() -> None:
             "proxy_password": None,
         }
 
+    # 3. GPT prompt
     print(flush=True)
-    api_id   = _ask_int("api_id (с my.telegram.org): ")
-    api_hash = _ask("api_hash (с my.telegram.org): ")
     gpt_prompt = _ask(
         f"GPT prompt (Enter — стандартный):\n  [{DEFAULT_GPT_PROMPT}]\n> ",
         DEFAULT_GPT_PROMPT,
     )
 
+    # 4. Telegram credentials
+    print(flush=True)
+    phone    = _ask("Номер телефона (например +79001234567): ")
+    api_id   = _ask_int("api_id (с my.telegram.org): ")
+    api_hash = _ask("api_hash (с my.telegram.org): ")
+
+    # 5. Telegram auth
     print("\nПодключаюсь к Telegram...", flush=True)
     session = StringSession()
     proxy   = None
@@ -132,11 +203,12 @@ async def add_account() -> None:
 
         me = await client.get_me()
         session_string = client.session.save()
-        print(f"\nАвторизован как: {me.first_name} (id={me.id})", flush=True)
+        print(f"\n  Авторизован как: {me.first_name} (id={me.id})", flush=True)
 
     finally:
         await client.disconnect()
 
+    # 6. Save to DB
     print("\nСохраняю в базу данных...", flush=True)
     pool = await init_pool(DATABASE_URL)
     try:
@@ -150,15 +222,13 @@ async def add_account() -> None:
             **proxy_data,
         )
         await update_session_string(pool, account["id"], session_string)
-        print(f"\n[OK] Аккаунт сохранён. ID: {account['id']}", flush=True)
+        print(f"\n[OK] Аккаунт '{name}' сохранён. ID: {account['id']}", flush=True)
         print("     Запусти бота: python3 -m app.main\n", flush=True)
     finally:
         await close_pool()
 
 
 def main() -> None:
-    # Ensure UTF-8 encoding for the process
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     asyncio.run(add_account())
 
 
