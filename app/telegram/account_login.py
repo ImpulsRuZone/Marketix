@@ -45,7 +45,12 @@ def _ask_int(prompt: str) -> int:
 
 
 def _ask_bool(prompt: str) -> bool:
-    return input(prompt).strip().lower() in ("y", "yes", "д", "да", "1")
+    try:
+        val = input(prompt).strip().lower()
+    except UnicodeDecodeError:
+        import sys
+        val = sys.stdin.buffer.readline().decode("utf-8", errors="ignore").strip().lower()
+    return val in ("y", "yes", "д", "да", "1")
 
 
 def _collect_proxy() -> dict:
