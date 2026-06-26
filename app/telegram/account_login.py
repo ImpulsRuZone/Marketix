@@ -2,19 +2,13 @@
 Interactive CLI for adding a new Telegram account.
 
 Usage:
-    python -m app.telegram.account_login
+    PYTHONIOENCODING=utf-8 python3 -m app.telegram.account_login
 """
 
 import asyncio
-import io
-import sys
 import logging
-
-# Force UTF-8 for stdin/stdout to avoid encoding issues on non-UTF-8 terminals
-if hasattr(sys.stdout, 'buffer'):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
-if hasattr(sys.stdin, 'buffer'):
-    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', errors='replace')
+import os
+import sys
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -28,41 +22,47 @@ logger = logging.getLogger(__name__)
 
 
 def _ask(prompt: str, default: str = "") -> str:
-    val = input(prompt).strip()
+    try:
+        val = input(prompt).strip()
+    except UnicodeDecodeError:
+        val = ""
     return val if val else default
 
 
 def _ask_int(prompt: str) -> int:
     while True:
+        raw = _ask(prompt)
         try:
-            return int(input(prompt).strip())
+            return int(raw)
         except ValueError:
             print("  Введите целое число.")
 
 
 def _ask_bool(prompt: str) -> bool:
-    val = input(prompt).strip().lower()
-    return val in ("y", "yes", "д", "да", "1")
+    val = _ask(prompt).lower()
+    return val.startswith("y") or val.startswith("д") or val == "1"
 
 
 def _ask_choice(prompt: str, choices: list) -> str:
-    print(prompt)
-    for i, choice in enumerate(choices, 1):
-        print(f"  {i}) {choice}")
     while True:
+        print(prompt, flush=True)
+        for i, c in enumerate(choices, 1):
+            print(f"  {i}) {c}", flush=True)
+        raw = _ask(f"Выбери [1-{len(choices)}]: ")
         try:
-            idx = int(input(f"Выбери [1-{len(choices)}]: ").strip()) - 1
+            idx = int(raw) - 1
             if 0 <= idx < len(choices):
                 return choices[idx]
         except ValueError:
-            pass
-        print(f"  Введи число от 1 до {len(choices)}")
+            if raw in choices:
+                return raw
+        print(f"  Нужно число от 1 до {len(choices)}", flush=True)
 
 
 def _collect_proxy() -> dict:
-    print("\n--- Настройки proxy ---")
+    print("\n--- Настройки proxy ---", flush=True)
     proxy_type = _ask_choice("Тип proxy:", ["socks5", "socks4", "http"])
-    proxy_host = _ask("Host (например 1.2.3.4): ")
+    proxy_host = _ask("Host (например 1.2.3.4 или domain): ")
     proxy_port = _ask_int("Port (например 1080): ")
     proxy_username = _ask("Username (Enter — пропустить): ") or None
     proxy_password = _ask("Password (Enter — пропустить): ") or None
@@ -78,7 +78,7 @@ def _collect_proxy() -> dict:
 
 async def add_account() -> None:
     setup_logging()
-    print("\n=== Добавление нового Telegram-аккаунта ===\n")
+    print("\n=== Добавление нового Telegram-аккаунта ===\n", flush=True)
 
     name  = _ask("Название аккаунта (например account1): ", "account1")
     phone = _ask("Номер телефона (например +79001234567): ")
@@ -88,6 +88,7 @@ async def add_account() -> None:
     if use_proxy:
         proxy_data = _collect_proxy()
     else:
+        print("  Proxy отключён.", flush=True)
         proxy_data = {
             "proxy_enabled":  False,
             "proxy_type":     None,
@@ -97,7 +98,7 @@ async def add_account() -> None:
             "proxy_password": None,
         }
 
-    print()
+    print(flush=True)
     api_id   = _ask_int("api_id (с my.telegram.org): ")
     api_hash = _ask("api_hash (с my.telegram.org): ")
     gpt_prompt = _ask(
@@ -105,7 +106,7 @@ async def add_account() -> None:
         DEFAULT_GPT_PROMPT,
     )
 
-    print("\nПодключаюсь к Telegram...")
+    print("\nПодключаюсь к Telegram...", flush=True)
     session = StringSession()
     proxy   = None
     if use_proxy:
@@ -131,12 +132,12 @@ async def add_account() -> None:
 
         me = await client.get_me()
         session_string = client.session.save()
-        print(f"\nАвторизован как: {me.first_name} (id={me.id})")
+        print(f"\nАвторизован как: {me.first_name} (id={me.id})", flush=True)
 
     finally:
         await client.disconnect()
 
-    print("\nСохраняю в базу данных...")
+    print("\nСохраняю в базу данных...", flush=True)
     pool = await init_pool(DATABASE_URL)
     try:
         account = await create_account(
@@ -149,13 +150,15 @@ async def add_account() -> None:
             **proxy_data,
         )
         await update_session_string(pool, account["id"], session_string)
-        print(f"\n Аккаунт сохранён. ID: {account['id']}")
-        print("  Запусти бота: python3 -m app.main\n")
+        print(f"\n[OK] Аккаунт сохранён. ID: {account['id']}", flush=True)
+        print("     Запусти бота: python3 -m app.main\n", flush=True)
     finally:
         await close_pool()
 
 
 def main() -> None:
+    # Ensure UTF-8 encoding for the process
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     asyncio.run(add_account())
 
 
