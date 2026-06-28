@@ -211,12 +211,18 @@ async def create_comment(
     chat_id: Optional[UUID],
     post_id: Optional[UUID],
     generated_comment: str,
+    post_text: Optional[str] = None,
 ) -> asyncpg.Record:
+    # Some Supabase schemas require post_text NOT NULL on comments
+    post_text_db = post_text if post_text is not None else generated_comment
+
     return await pool.fetchrow("""
-        INSERT INTO comments (account_id, chat_id, post_id, generated_comment)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO comments
+            (account_id, chat_id, post_id, generated_comment, post_text)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING *
-    """, _db_uuid(account_id), _db_uuid(chat_id), _db_uuid(post_id), generated_comment)
+    """, _db_uuid(account_id), _db_uuid(chat_id), _db_uuid(post_id),
+        generated_comment, post_text_db)
 
 
 async def mark_comment_sent(

@@ -233,6 +233,7 @@ class AccountWorker:
             post_db_id=post_db_id,
             pool=self.pool,
             db_log=self.db_log,
+            post_text=post_text,
         )
 
     # ──────────────────────────────────────────────────────────────
