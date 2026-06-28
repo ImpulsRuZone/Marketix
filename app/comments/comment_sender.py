@@ -73,6 +73,7 @@ async def send_comment(
         comment,
         db_log,
         channel_name,
+        event=event,
     )
 
     if success:

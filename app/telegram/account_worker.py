@@ -243,6 +243,7 @@ class AccountWorker:
             pool=self.pool,
             db_log=self.db_log,
             post_text=post_text,
+            event=event,
         )
 
         must_exclude = result.exclude_channel or (
