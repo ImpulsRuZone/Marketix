@@ -151,7 +151,14 @@ systemctl stop neurocomment        # остановить
 systemctl disable neurocomment     # убрать из автозагрузки
 ```
 
-Файл unit: `deploy/neurocomment.service`. Скрипт `deploy/install-systemd.sh` подставляет путь к проекту и пользователя автоматически.
+Файл unit: `deploy/neurocomment.service`. Скрипт `deploy/install-systemd.sh` подставляет путь к проекту и пользователя автоматически, а также добавляет `JOIN_ON_STARTUP=false` в `.env`, если переменной ещё нет.
+
+Если `.env` создан раньше — добавьте вручную:
+
+```env
+# true — вступать в новые каналы при рестарте; false — только слушать посты
+JOIN_ON_STARTUP=false
+```
 
 ### Или через Docker
 

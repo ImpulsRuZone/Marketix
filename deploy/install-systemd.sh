@@ -25,6 +25,16 @@ if [[ ! -f "${PROJECT_DIR}/app/main.py" ]]; then
   exit 1
 fi
 
+# Добавить JOIN_ON_STARTUP в .env, если отсутствует
+if ! grep -qE '^[[:space:]]*JOIN_ON_STARTUP=' "${PROJECT_DIR}/.env"; then
+  {
+    echo ""
+    echo "# Вступать в новые каналы при старте (systemd: true | false)"
+    echo "JOIN_ON_STARTUP=false"
+  } >> "${PROJECT_DIR}/.env"
+  echo "Добавлено в .env: JOIN_ON_STARTUP=false"
+fi
+
 # Подставляем реальный путь проекта и пользователя
 sed \
   -e "s|WorkingDirectory=.*|WorkingDirectory=${PROJECT_DIR}|" \
