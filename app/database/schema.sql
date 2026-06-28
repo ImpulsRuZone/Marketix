@@ -68,7 +68,9 @@ create table if not exists account_chats (
     id                    uuid primary key default gen_random_uuid(),
     account_id            uuid not null references accounts(id) on delete cascade,
     chat_id               uuid not null references target_chats(id) on delete cascade,
-    status                text default 'pending',  -- pending | joined | failed | requested
+    account_name          text,
+    chat_title            text,
+    status                text default 'pending',  -- pending | joined | failed | requested | excluded
     last_join_attempt_at  timestamptz,
     joined_at             timestamptz,
     error_message         text,
@@ -136,6 +138,8 @@ alter table target_chats add column if not exists title text;
 alter table target_chats add column if not exists type text;
 alter table target_chats add column if not exists updated_at timestamptz default now();
 alter table account_chats add column if not exists updated_at timestamptz default now();
+alter table account_chats add column if not exists account_name text;
+alter table account_chats add column if not exists chat_title text;
 alter table logs alter column payload drop not null;
 alter table logs drop constraint if exists logs_level_check;
 alter table logs add constraint logs_level_check check (level in ('info', 'warning', 'error'));

@@ -122,7 +122,8 @@ class AccountWorker:
             self.db_log.info(
                 "прослушивание",
                 f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
-                f"(вступление в новые — в фоне)",
+                f"для аккаунта «{self.name}» (вступление в новые — в фоне)"
+                + (f", исключено для аккаунта: {len(excluded_ids)}" if excluded_ids else ""),
             )
             asyncio.create_task(
                 join_all_chats(
@@ -132,13 +133,15 @@ class AccountWorker:
                     self.pool,
                     self.db_log,
                     monitored_ids=self._monitored_ids,
+                    account_name=self.name,
                 )
             )
         else:
             self.db_log.info(
                 "прослушивание",
                 f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
-                f"(вступление отключено — работаю с текущим списком)",
+                f"для аккаунта «{self.name}» (вступление отключено — работаю с текущим списком)"
+                + (f", исключено для аккаунта: {len(excluded_ids)}" if excluded_ids else ""),
             )
             self.db_log.info(
                 "вступление_пропущено",
@@ -281,6 +284,7 @@ class AccountWorker:
                 telegram_chat_id=channel.id,
                 username=channel_username or None,
                 title=channel_name,
+                account_name=self.name,
             )
         except Exception as e:
             self.db_log.error(
@@ -291,8 +295,8 @@ class AccountWorker:
 
         self.db_log.warning(
             "канал_исключён",
-            f"[{channel_name}] Исключён из прослушивания: {error_message}. "
-            f"Осталось каналов: {len(self._monitored_ids)}",
+            f"[{channel_name}] Исключён из прослушивания для аккаунта «{self.name}»: "
+            f"{error_message}. Осталось каналов: {len(self._monitored_ids)}",
         )
 
     async def _wait_if_sleeping(self) -> None:

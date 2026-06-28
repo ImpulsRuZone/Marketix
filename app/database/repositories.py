@@ -5,7 +5,7 @@ Database repository layer. All SQL queries live here.
 import json
 import logging
 from datetime import datetime, date
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Tuple
 from uuid import UUID
 
 import asyncpg
@@ -187,9 +187,11 @@ async def record_channel_exclusion(
     telegram_chat_id: Optional[int] = None,
     username: Optional[str] = None,
     title: Optional[str] = None,
+    account_name: Optional[str] = None,
 ) -> Optional[UUID]:
     """
-    Persist channel exclusion across target_chats, account_chats and logs.
+    Persist per-account channel exclusion in account_chats and logs.
+    Does NOT deactivate target_chats globally — other accounts keep listening.
     Required when linked group returns 'private and you lack permission'.
     """
     url = chat_url
@@ -206,7 +208,6 @@ async def record_channel_exclusion(
         username=username,
         title=title,
         chat_type="channel",
-        is_active=False,
     )
     target_id = chat_db_id or target_row["id"]
 
@@ -216,6 +217,8 @@ async def record_channel_exclusion(
         target_id,
         "excluded",
         error_message=error_message,
+        account_name=account_name,
+        chat_title=title,
     )
 
     label = title or url or str(telegram_chat_id)
@@ -223,13 +226,15 @@ async def record_channel_exclusion(
         pool,
         "warning",
         "канал_исключён",
-        f"[{label}] Исключён из прослушивания: {error_message}",
+        f"[{label}] Исключён для аккаунта: {error_message}",
         account_id,
         payload={
+            "account_id": _db_uuid(account_id),
             "chat_url": url,
             "telegram_chat_id": telegram_chat_id,
             "target_chat_id": _db_uuid(target_id),
             "error": error_message,
+            "scope": "account",
         },
     )
     return target_id
@@ -241,11 +246,37 @@ async def record_channel_exclusion(
 
 async def get_account_chats(pool: asyncpg.Pool, account_id: UUID) -> List[asyncpg.Record]:
     return await pool.fetch("""
-        SELECT ac.*, tc.chat_url, tc.title
+        SELECT ac.*, tc.chat_url, tc.title AS target_chat_title
         FROM account_chats ac
         JOIN target_chats tc ON tc.id = ac.chat_id
         WHERE ac.account_id = $1
     """, _db_uuid(account_id))
+
+
+async def _resolve_account_chat_names(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    chat_id: UUID,
+    account_name: Optional[str] = None,
+    chat_title: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    if account_name and chat_title:
+        return account_name, chat_title
+
+    row = await pool.fetchrow("""
+        SELECT a.name AS account_name, tc.title AS chat_title
+        FROM accounts a
+        CROSS JOIN target_chats tc
+        WHERE a.id = $1 AND tc.id = $2
+    """, _db_uuid(account_id), _db_uuid(chat_id))
+
+    if not row:
+        return account_name, chat_title
+
+    return (
+        account_name or row.get("account_name"),
+        chat_title or row.get("chat_title"),
+    )
 
 
 async def upsert_account_chat(
@@ -255,21 +286,45 @@ async def upsert_account_chat(
     status: str,
     error_message: Optional[str] = None,
     joined_at: Optional[datetime] = None,
+    account_name: Optional[str] = None,
+    chat_title: Optional[str] = None,
 ) -> None:
     status_db = status.lower()
     if status_db not in ("pending", "joined", "failed", "requested", "excluded"):
         status_db = "pending"
 
-    await pool.execute("""
-        INSERT INTO account_chats
-            (account_id, chat_id, status, last_join_attempt_at, joined_at, error_message)
-        VALUES ($1, $2, $3, now(), $4, $5)
-        ON CONFLICT (account_id, chat_id) DO UPDATE
-            SET status               = EXCLUDED.status,
-                last_join_attempt_at = now(),
-                joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
-                error_message        = EXCLUDED.error_message
-    """, _db_uuid(account_id), _db_uuid(chat_id), status_db, joined_at, error_message)
+    account_name, chat_title = await _resolve_account_chat_names(
+        pool, account_id, chat_id, account_name, chat_title,
+    )
+
+    try:
+        await pool.execute("""
+            INSERT INTO account_chats
+                (account_id, chat_id, account_name, chat_title,
+                 status, last_join_attempt_at, joined_at, error_message)
+            VALUES ($1, $2, $3, $4, $5, now(), $6, $7)
+            ON CONFLICT (account_id, chat_id) DO UPDATE
+                SET status               = EXCLUDED.status,
+                    account_name         = COALESCE(EXCLUDED.account_name, account_chats.account_name),
+                    chat_title           = COALESCE(EXCLUDED.chat_title, account_chats.chat_title),
+                    last_join_attempt_at = now(),
+                    joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
+                    error_message        = EXCLUDED.error_message
+        """, _db_uuid(account_id), _db_uuid(chat_id), account_name, chat_title,
+            status_db, joined_at, error_message)
+    except Exception as e:
+        if "account_name" not in str(e) and "chat_title" not in str(e):
+            raise
+        await pool.execute("""
+            INSERT INTO account_chats
+                (account_id, chat_id, status, last_join_attempt_at, joined_at, error_message)
+            VALUES ($1, $2, $3, now(), $4, $5)
+            ON CONFLICT (account_id, chat_id) DO UPDATE
+                SET status               = EXCLUDED.status,
+                    last_join_attempt_at = now(),
+                    joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
+                    error_message        = EXCLUDED.error_message
+        """, _db_uuid(account_id), _db_uuid(chat_id), status_db, joined_at, error_message)
 
 
 # ──────────────────────────────────────────────

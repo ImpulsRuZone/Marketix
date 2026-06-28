@@ -36,6 +36,7 @@ async def join_all_chats(
     pool,
     db_log: DBLogger,
     monitored_ids: Optional[Set[int]] = None,
+    account_name: Optional[str] = None,
 ) -> None:
     """Entry point called by account_worker on startup."""
     target_chats = await repo.get_joinable_target_chats(pool)
@@ -69,6 +70,7 @@ async def join_all_chats(
             settings["join_delay_min_seconds"],
             settings["join_delay_max_seconds"],
             monitored_ids=monitored_ids,
+            account_name=account_name,
         )
 
         if did_join:
@@ -89,6 +91,7 @@ async def _join_one(
     delay_min: int,
     delay_max: int,
     monitored_ids: Optional[Set[int]] = None,
+    account_name: Optional[str] = None,
 ) -> bool:
     """Joins one chat + its linked group. Returns True if any join happened."""
     url = normalize_chat_url(chat_row["chat_url"])
@@ -101,7 +104,10 @@ async def _join_one(
         entity = await client.get_entity(url)
     except Exception as e:
         db_log.error("ошибка_вступления", f"Не удалось найти канал {url}: {e}")
-        await repo.upsert_account_chat(pool, account_id, chat_db_id, "failed", str(e))
+        await repo.upsert_account_chat(
+            pool, account_id, chat_db_id, "failed", str(e),
+            chat_title=title, account_name=account_name,
+        )
         return False
 
     title = getattr(entity, "title", url)
@@ -117,7 +123,10 @@ async def _join_one(
         chat_type="channel" if hasattr(entity, "broadcast") else "group",
     )
 
-    joined = await _try_join(client, entity, f"{title} ({url})", account_id, chat_db_id, pool, db_log)
+    joined = await _try_join(
+        client, entity, f"{title} ({url})", account_id, chat_db_id, pool, db_log,
+        account_name=account_name, chat_title=title,
+    )
     if monitored_ids is not None:
         add_monitored_channel(monitored_ids, entity)
 
@@ -145,6 +154,7 @@ async def _join_one(
                 client, linked_entity,
                 f"linked-группа «{linked_title}»",
                 account_id, linked_chat["id"], pool, db_log,
+                account_name=account_name, chat_title=linked_title,
             )
             joined = joined or linked_joined
     except Exception:
@@ -156,11 +166,13 @@ async def _join_one(
 async def _save_join_status(
     pool, account_id, chat_db_id, status, db_log, label,
     error_message=None, joined_at=None,
+    account_name=None, chat_title=None,
 ) -> None:
     try:
         await repo.upsert_account_chat(
             pool, account_id, chat_db_id, status,
             error_message=error_message, joined_at=joined_at,
+            account_name=account_name, chat_title=chat_title,
         )
     except Exception as e:
         db_log.error(
@@ -177,6 +189,8 @@ async def _try_join(
     chat_db_id: UUID,
     pool,
     db_log: DBLogger,
+    account_name: Optional[str] = None,
+    chat_title: Optional[str] = None,
 ) -> bool:
     try:
         await client(JoinChannelRequest(entity))
@@ -184,6 +198,7 @@ async def _try_join(
         await _save_join_status(
             pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
+            account_name=account_name, chat_title=chat_title,
         )
         return True
 
@@ -192,22 +207,31 @@ async def _try_join(
         await _save_join_status(
             pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
+            account_name=account_name, chat_title=chat_title,
         )
         return False
 
     except FloodWaitError as e:
         db_log.warning("флудвейт", f"FloodWait {e.seconds} сек для {label}")
         await asyncio.sleep(e.seconds + 15)
-        await _save_join_status(pool, account_id, chat_db_id, "pending", db_log, label)
+        await _save_join_status(
+            pool, account_id, chat_db_id, "pending", db_log, label,
+            account_name=account_name, chat_title=chat_title,
+        )
         return False
 
     except Exception as e:
         if "successfully requested to join" in str(e):
             db_log.info("заявка_отправлена", f"Заявка на вступление отправлена: {label}")
-            await _save_join_status(pool, account_id, chat_db_id, "requested", db_log, label)
+            await _save_join_status(
+                pool, account_id, chat_db_id, "requested", db_log, label,
+                account_name=account_name, chat_title=chat_title,
+            )
             return False
         db_log.error("ошибка_вступления", f"Ошибка вступления в {label}: {e}")
         await _save_join_status(
-            pool, account_id, chat_db_id, "failed", db_log, label, error_message=str(e),
+            pool, account_id, chat_db_id, "failed", db_log, label,
+            error_message=str(e),
+            account_name=account_name, chat_title=chat_title,
         )
         return False
