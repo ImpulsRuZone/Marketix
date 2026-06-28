@@ -108,6 +108,29 @@ INSERT INTO target_chats (chat_url) VALUES
 python3 -m app.main
 ```
 
+### Или через systemd (VPS)
+
+Установка и автозапуск при перезагрузке сервера:
+
+```bash
+cd ~/neurocomment
+git pull origin cursor/full-architecture-bot-7336
+pip3 install -r requirements.txt
+sudo bash deploy/install-systemd.sh
+```
+
+Управление сервисом:
+
+```bash
+systemctl status neurocomment      # статус
+journalctl -u neurocomment -f        # логи в реальном времени
+systemctl restart neurocomment     # перезапуск после git pull
+systemctl stop neurocomment        # остановить
+systemctl disable neurocomment     # убрать из автозагрузки
+```
+
+Файл unit: `deploy/neurocomment.service`. Скрипт `deploy/install-systemd.sh` подставляет путь к проекту и пользователя автоматически.
+
 ### Или через Docker
 
 ```bash
