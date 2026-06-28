@@ -100,6 +100,15 @@ async def get_active_target_chats(pool: asyncpg.Pool) -> List[asyncpg.Record]:
     return await pool.fetch("SELECT * FROM target_chats WHERE is_active = true")
 
 
+async def get_joinable_target_chats(pool: asyncpg.Pool) -> List[asyncpg.Record]:
+    """Channels to join and monitor. Excludes auto-created linked groups (id:…)."""
+    return await pool.fetch("""
+        SELECT * FROM target_chats
+        WHERE is_active = true
+          AND chat_url NOT LIKE 'id:%'
+    """)
+
+
 async def upsert_target_chat(
     pool: asyncpg.Pool,
     chat_url: str,
@@ -107,20 +116,26 @@ async def upsert_target_chat(
     username: Optional[str] = None,
     title: Optional[str] = None,
     chat_type: Optional[str] = None,
+    is_active: Optional[bool] = None,
 ) -> asyncpg.Record:
     # Some DB setups store telegram chat_id as text, not bigint
     chat_id_db = str(chat_id) if chat_id is not None else None
+    active_db = True if is_active is None else is_active
 
     return await pool.fetchrow("""
-        INSERT INTO target_chats (chat_url, chat_id, username, title, type)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO target_chats (chat_url, chat_id, username, title, type, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (chat_url) DO UPDATE
             SET chat_id   = COALESCE(EXCLUDED.chat_id, target_chats.chat_id),
                 username  = COALESCE(EXCLUDED.username, target_chats.username),
                 title     = COALESCE(EXCLUDED.title, target_chats.title),
-                type      = COALESCE(EXCLUDED.type, target_chats.type)
+                type      = COALESCE(EXCLUDED.type, target_chats.type),
+                is_active = CASE
+                    WHEN $6 = false THEN false
+                    ELSE target_chats.is_active
+                END
         RETURNING *
-    """, chat_url, chat_id_db, username, title, chat_type)
+    """, chat_url, chat_id_db, username, title, chat_type, active_db)
 
 
 # ──────────────────────────────────────────────

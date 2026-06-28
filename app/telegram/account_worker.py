@@ -100,7 +100,7 @@ class AccountWorker:
         await self._wait_if_sleeping()
 
         # Слушаем посты сразу — не ждём окончания вступления во все каналы
-        target_rows = await repo.get_active_target_chats(self.pool)
+        target_rows = await repo.get_joinable_target_chats(self.pool)
         self._chat_urls = [row["chat_url"] for row in target_rows if row.get("chat_url")]
         if not self._chat_urls:
             self.db_log.warning("нет_чатов", "Нет целевых чатов в target_chats. Ожидание 60 сек.")

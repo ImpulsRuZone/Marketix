@@ -15,6 +15,11 @@ def peer_id(entity_or_id: Union[object, int]) -> int:
     return utils.get_peer_id(entity_or_id)
 
 
+def is_linked_chat_url(url: str) -> bool:
+    """Linked discussion groups are stored as id:TELEGRAM_ID."""
+    return str(url or "").strip().startswith("id:")
+
+
 def normalize_chat_url(url: str) -> str:
     """@username from t.me links and bare usernames."""
     url = (url or "").strip()
@@ -37,13 +42,17 @@ async def resolve_monitored_ids(client, target_rows: Iterable) -> Set[int]:
     monitored: Set[int] = set()
 
     for row in target_rows:
+        chat_url = str(row.get("chat_url") or "")
+        if is_linked_chat_url(chat_url):
+            continue
+
         stored_id = row.get("chat_id")
         if stored_id is not None and str(stored_id).lstrip("-").isdigit():
             monitored.add(peer_id(int(stored_id)))
             continue
 
         chat_url = row.get("chat_url")
-        if not chat_url or str(chat_url).startswith("id:"):
+        if not chat_url:
             continue
 
         try:

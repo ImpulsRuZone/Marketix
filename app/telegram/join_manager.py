@@ -22,7 +22,7 @@ from telethon.tl.functions.channels import JoinChannelRequest, GetFullChannelReq
 
 from app.database import repositories as repo
 from app.logs.logger import DBLogger
-from app.telegram.chat_utils import normalize_chat_url
+from app.telegram.chat_utils import normalize_chat_url, is_linked_chat_url
 from app.telegram.post_listener import add_monitored_channel
 from app.utils.random_utils import random_delay
 
@@ -38,7 +38,7 @@ async def join_all_chats(
     monitored_ids: Optional[Set[int]] = None,
 ) -> None:
     """Entry point called by account_worker on startup."""
-    target_chats = await repo.get_active_target_chats(pool)
+    target_chats = await repo.get_joinable_target_chats(pool)
     if not target_chats:
         db_log.info("менеджер_вступлений", "Активные целевые чаты не найдены")
         return
@@ -48,9 +48,12 @@ async def join_all_chats(
         for row in await repo.get_account_chats(pool, account_id)
     }
 
-    db_log.info("менеджер_вступлений", f"Проверяю {len(target_chats)} чатов для вступления")
+    db_log.info("менеджер_вступлений", f"Проверяю {len(target_chats)} каналов для вступления")
 
     for chat in target_chats:
+        if is_linked_chat_url(chat["chat_url"]):
+            continue
+
         chat_db_id = str(chat["id"])
         current_status = joined_chats.get(chat_db_id)
 
@@ -86,6 +89,9 @@ async def _join_one(
 ) -> bool:
     """Joins one chat + its linked group. Returns True if any join happened."""
     url = normalize_chat_url(chat_row["chat_url"])
+    if is_linked_chat_url(url):
+        return False
+
     chat_db_id = chat_row["id"]
 
     try:
@@ -130,6 +136,7 @@ async def _join_one(
                 chat_id=linked_id,
                 title=linked_title,
                 chat_type="group",
+                is_active=False,
             )
             linked_joined = await _try_join(
                 client, linked_entity,
