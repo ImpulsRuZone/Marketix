@@ -14,7 +14,7 @@ create table if not exists accounts (
     phone            text not null,
     api_id           integer not null,   -- копия из .env (для справки)
     api_hash         text not null,      -- копия из .env (для справки)
-    session_string   text,
+    session_string   text not null,
     gpt_prompt       text,
     proxy_enabled    boolean default false,
     proxy_type       text,           -- socks5 | http

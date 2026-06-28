@@ -24,7 +24,7 @@ from telethon.sessions import StringSession
 
 from app.config import DATABASE_URL, DEFAULT_GPT_PROMPT, get_telegram_api
 from app.database.supabase_client import init_pool, close_pool
-from app.database.repositories import create_account, update_session_string
+from app.database.repositories import create_account
 from app.logs.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -241,10 +241,10 @@ async def add_account() -> None:
             pool,
             name=name,
             phone=phone,
+            session_string=session_string,
             gpt_prompt=gpt_prompt,
             **proxy_data,
         )
-        await update_session_string(pool, account["id"], session_string)
         print(f"\n[OK] Аккаунт '{name}' сохранён. ID: {account['id']}", flush=True)
         print("     Запусти бота: python3 -m app.main\n", flush=True)
     finally:

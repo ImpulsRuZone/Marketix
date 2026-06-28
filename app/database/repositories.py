@@ -44,6 +44,7 @@ async def create_account(
     pool: asyncpg.Pool,
     name: str,
     phone: str,
+    session_string: str,
     gpt_prompt: Optional[str] = None,
     proxy_enabled: bool = False,
     proxy_type: Optional[str] = None,
@@ -58,12 +59,12 @@ async def create_account(
     async with pool.acquire() as conn:
         account = await conn.fetchrow("""
             INSERT INTO accounts
-                (name, phone, api_id, api_hash, gpt_prompt,
+                (name, phone, api_id, api_hash, session_string, gpt_prompt,
                  proxy_enabled, proxy_type, proxy_host, proxy_port,
                  proxy_username, proxy_password)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             RETURNING *
-        """, name, phone, api_id, api_hash, gpt_prompt,
+        """, name, phone, api_id, api_hash, session_string, gpt_prompt,
             proxy_enabled, proxy_type, proxy_host, proxy_port,
             proxy_username, proxy_password)
 
