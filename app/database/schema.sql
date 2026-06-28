@@ -142,4 +142,4 @@ alter table logs add constraint logs_level_check check (level in ('info', 'warni
 
 alter table account_chats drop constraint if exists account_chats_status_check;
 alter table account_chats add constraint account_chats_status_check
-    check (status in ('pending', 'joined', 'failed', 'requested'));
+    check (status in ('pending', 'joined', 'failed', 'requested', 'excluded'));

@@ -16,6 +16,7 @@ Responsibilities:
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from telethon import TelegramClient
@@ -27,6 +28,7 @@ from app.telegram.client_factory import create_client
 from app.telegram.join_manager import join_all_chats
 from app.telegram.post_listener import register_post_handler, remove_monitored_channel
 from app.telegram.chat_utils import resolve_monitored_ids, peer_id
+from app.telegram.permission_errors import is_mandatory_exclusion_error
 from app.comments.generator import generate_comment
 from app.comments.comment_scheduler import should_comment
 from app.comments.comment_sender import send_comment
@@ -236,11 +238,18 @@ class AccountWorker:
             post_text=post_text,
         )
 
-        if result.exclude_channel:
+        must_exclude = result.exclude_channel or (
+            result.error_message and is_mandatory_exclusion_error(
+                Exception(result.error_message)
+            )
+        )
+        if must_exclude:
             await self._exclude_channel_from_monitoring(
                 channel,
                 channel_name,
-                "нет доступа к linked-группе для комментариев",
+                channel_username,
+                chat_db_id,
+                result.error_message or "private and you lack permission",
             )
 
     # ──────────────────────────────────────────────────────────────
@@ -251,31 +260,36 @@ class AccountWorker:
         self,
         channel,
         channel_name: str,
-        reason: str,
+        channel_username: str,
+        chat_db_id: Optional[UUID],
+        error_message: str,
     ) -> None:
-        removed = remove_monitored_channel(self._monitored_ids, channel)
-        if not removed:
+        remove_monitored_channel(self._monitored_ids, channel)
+
+        chat_url = f"@{channel_username}" if channel_username else None
+        try:
+            await repo.record_channel_exclusion(
+                self.pool,
+                self.account_id,
+                error_message,
+                chat_db_id=chat_db_id,
+                chat_url=chat_url,
+                telegram_chat_id=channel.id,
+                username=channel_username or None,
+                title=channel_name,
+            )
+        except Exception as e:
+            self.db_log.error(
+                "ошибка_бд",
+                f"[{channel_name}] Не удалось записать исключение канала в БД: {e}",
+            )
             return
 
         self.db_log.warning(
             "канал_исключён",
-            f"[{channel_name}] Исключён из прослушивания: {reason}. "
+            f"[{channel_name}] Исключён из прослушивания: {error_message}. "
             f"Осталось каналов: {len(self._monitored_ids)}",
         )
-
-        channel_username = getattr(channel, "username", "")
-        chat_url = f"@{channel_username}" if channel_username else None
-        try:
-            await repo.deactivate_target_chat(
-                self.pool,
-                chat_url=chat_url,
-                telegram_chat_id=channel.id,
-            )
-        except Exception as e:
-            self.db_log.warning(
-                "ошибка_бд",
-                f"[{channel_name}] Канал исключён из памяти, но не деактивирован в БД: {e}",
-            )
 
     async def _wait_if_sleeping(self) -> None:
         while is_sleep_time(

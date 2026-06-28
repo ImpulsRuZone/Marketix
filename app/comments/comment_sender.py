@@ -15,17 +15,12 @@ from app.comments.send_result import CommentSendResult
 from app.database import repositories as repo
 from app.database.db_types import as_db_uuid
 from app.logs.logger import DBLogger
+from app.telegram.permission_errors import (
+    get_permission_error_text,
+    should_exclude_channel,
+)
 
 logger = logging.getLogger(__name__)
-
-_PERMISSION_ERRORS = (
-    "lack permission",
-    "private",
-    "banned",
-    "getdiscussionmessage",
-    "channel_private",
-    "chat_write_forbidden",
-)
 
 
 async def send_comment(
@@ -54,7 +49,8 @@ async def send_comment(
             )
     except Exception as e:
         db_log.error("ошибка_linked_группы", f"[{channel_name}] Не удалось получить данные канала: {e}")
-        return CommentSendResult(False, _is_permission_error(e))
+        err = get_permission_error_text(e)
+        return CommentSendResult(False, should_exclude_channel(e), err)
 
     if not linked_id:
         db_log.warning("нет_linked_группы", f"[{channel_name}] Нет linked-группы, пропускаю")
@@ -67,16 +63,17 @@ async def send_comment(
     if linked_entity is not None:
         await _try_join_linked(client, linked_entity, db_log, channel_name)
 
-    success, exclude = await _send_to_telegram(
+    success, exclude, error_message = await _send_to_telegram(
         client, linked_id, linked_entity, msg_id, comment, db_log, channel_name,
     )
 
     if success:
         await _try_mark_sent(pool, comment_db_id, comment, db_log, channel_name)
     else:
-        await _try_mark_failed(pool, comment_db_id, "Не удалось отправить в Telegram", db_log)
+        await _try_mark_failed(pool, comment_db_id, error_message or "Не удалось отправить в Telegram", db_log)
 
-    return CommentSendResult(success, exclude)
+    exclude = exclude or (error_message is not None and should_exclude_channel(Exception(error_message)))
+    return CommentSendResult(success, exclude, error_message)
 
 
 async def _try_join_linked(client, linked_entity, db_log: DBLogger, label: str) -> None:
@@ -139,8 +136,7 @@ async def _try_mark_failed(pool, comment_db_id, error_message: str, db_log: DBLo
 
 
 def _is_permission_error(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return any(marker in text for marker in _PERMISSION_ERRORS)
+    return should_exclude_channel(exc)
 
 
 async def _send_to_telegram(
@@ -151,9 +147,10 @@ async def _send_to_telegram(
     comment: str,
     db_log: DBLogger,
     label: str,
-) -> Tuple[bool, bool]:
-    """Returns (success, exclude_channel)."""
-    last_permission_error = False
+) -> Tuple[bool, bool, Optional[str]]:
+    """Returns (success, exclude_channel, error_message)."""
+    last_error: Optional[str] = None
+    last_exclude = False
 
     for attempt in range(2):
         try:
@@ -163,17 +160,18 @@ async def _send_to_telegram(
                 comment_to=msg_id,
             )
             db_log.info("комментарий_отправлен", f"[{label}] Отправлено: {comment[:60]}")
-            return True, False
+            return True, False, None
 
         except MsgIdInvalidError:
-            ok, exclude = await _send_via_forwarded_post(
+            return await _send_via_forwarded_post(
                 client, linked_id, msg_id, comment, db_log, label,
             )
-            return ok, exclude
 
         except Exception as e:
-            if _is_permission_error(e):
-                last_permission_error = True
+            err = get_permission_error_text(e)
+            if should_exclude_channel(e):
+                last_exclude = True
+                last_error = err
                 if attempt == 0 and linked_entity is not None:
                     db_log.warning(
                         "нет_доступа_linked",
@@ -182,12 +180,12 @@ async def _send_to_telegram(
                     await _try_join_linked(client, linked_entity, db_log, label)
                     continue
                 db_log.error("ошибка_отправки", f"[{label}] {e}")
-                return False, True
+                return False, True, err
 
             db_log.error("ошибка_отправки", f"[{label}] {e}")
-            return False, False
+            return False, False, err
 
-    return False, last_permission_error
+    return False, last_exclude, last_error
 
 
 async def _send_via_forwarded_post(
@@ -197,7 +195,7 @@ async def _send_via_forwarded_post(
     comment: str,
     db_log: DBLogger,
     label: str,
-) -> Tuple[bool, bool]:
+) -> Tuple[bool, bool, Optional[str]]:
     db_log.info("поиск_поста", f"[{label}] MsgIdInvalid — ищу пост в linked-группе")
     async for msg in client.iter_messages(linked_id, limit=20):
         if msg.fwd_from and msg.fwd_from.channel_post == msg_id:
@@ -211,10 +209,11 @@ async def _send_via_forwarded_post(
                     "комментарий_отправлен",
                     f"[{label}] Отправлено через linked id: {comment[:60]}",
                 )
-                return True, False
+                return True, False, None
             except Exception as e:
+                err = get_permission_error_text(e)
                 db_log.error("ошибка_отправки", f"[{label}] {e}")
-                return False, _is_permission_error(e)
+                return False, should_exclude_channel(e), err
 
     db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
-    return False, False
+    return False, False, None

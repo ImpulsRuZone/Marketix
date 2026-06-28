@@ -164,6 +164,64 @@ async def deactivate_target_chat(
         )
 
 
+async def record_channel_exclusion(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    error_message: str,
+    *,
+    chat_db_id: Optional[UUID] = None,
+    chat_url: Optional[str] = None,
+    telegram_chat_id: Optional[int] = None,
+    username: Optional[str] = None,
+    title: Optional[str] = None,
+) -> Optional[UUID]:
+    """
+    Persist channel exclusion across target_chats, account_chats and logs.
+    Required when linked group returns 'private and you lack permission'.
+    """
+    url = chat_url
+    if not url:
+        if username:
+            url = f"@{username.lstrip('@')}"
+        elif telegram_chat_id is not None:
+            url = f"id:{telegram_chat_id}"
+
+    target_row = await upsert_target_chat(
+        pool,
+        chat_url=url,
+        chat_id=telegram_chat_id,
+        username=username,
+        title=title,
+        chat_type="channel",
+        is_active=False,
+    )
+    target_id = chat_db_id or target_row["id"]
+
+    await upsert_account_chat(
+        pool,
+        account_id,
+        target_id,
+        "excluded",
+        error_message=error_message,
+    )
+
+    label = title or url or str(telegram_chat_id)
+    await write_log(
+        pool,
+        "warning",
+        "канал_исключён",
+        f"[{label}] Исключён из прослушивания: {error_message}",
+        account_id,
+        payload={
+            "chat_url": url,
+            "telegram_chat_id": telegram_chat_id,
+            "target_chat_id": _db_uuid(target_id),
+            "error": error_message,
+        },
+    )
+    return target_id
+
+
 # ──────────────────────────────────────────────
 # Account chats
 # ──────────────────────────────────────────────
@@ -186,7 +244,7 @@ async def upsert_account_chat(
     joined_at: Optional[datetime] = None,
 ) -> None:
     status_db = status.lower()
-    if status_db not in ("pending", "joined", "failed", "requested"):
+    if status_db not in ("pending", "joined", "failed", "requested", "excluded"):
         status_db = "pending"
 
     await pool.execute("""
