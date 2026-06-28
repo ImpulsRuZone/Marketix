@@ -61,8 +61,10 @@ pip3 install -r requirements.txt
 
 ```bash
 cp .env.example .env
-nano .env   # вставить DATABASE_URL и OPENAI_API_KEY
+nano .env   # вставить DATABASE_URL, API_ID, API_HASH, OPENAI_API_KEY
 ```
+
+`API_ID` и `API_HASH` получаются один раз на [my.telegram.org](https://my.telegram.org) и используются для **всех** аккаунтов.
 
 ### 3. Применить схему БД
 
@@ -80,11 +82,12 @@ python3 -m app.telegram.account_login
 
 Скрипт спросит:
 - Название аккаунта
-- Номер телефона
-- Использовать proxy?
-- `api_id` / `api_hash` (с [my.telegram.org](https://my.telegram.org))
+- Использовать proxy? (тип, host, port, логин/пароль)
 - GPT prompt для этого аккаунта
+- Номер телефона
 - SMS-код / пароль 2FA
+
+`API_ID` / `API_HASH` берутся из `.env` автоматически — вводить не нужно.
 
 После авторизации `session_string` сохраняется в Supabase — файлы сессии не нужны.
 

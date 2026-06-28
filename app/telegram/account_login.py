@@ -8,9 +8,11 @@ Flow:
     1. Account name
     2. Proxy settings + connection test
     3. GPT prompt
-    4. Phone, api_id, api_hash
+    4. Phone number
     5. Telegram auth (code + optional 2FA)
     6. Save to DB
+
+API_ID / API_HASH берутся из .env (одна пара на все аккаунты).
 """
 
 import asyncio
@@ -20,7 +22,7 @@ import sys
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from app.config import DATABASE_URL, DEFAULT_GPT_PROMPT
+from app.config import DATABASE_URL, DEFAULT_GPT_PROMPT, get_telegram_api
 from app.database.supabase_client import init_pool, close_pool
 from app.database.repositories import create_account, update_session_string
 from app.logs.logger import setup_logging
@@ -130,6 +132,13 @@ async def add_account() -> None:
     setup_logging()
     print("\n=== Добавление нового Telegram-аккаунта ===\n", flush=True)
 
+    try:
+        api_id, api_hash = get_telegram_api()
+        print(f"  API_ID: {api_id} (из .env, общий для всех аккаунтов)\n", flush=True)
+    except RuntimeError as e:
+        print(f"\n[ОШИБКА] {e}\n", flush=True)
+        return
+
     # 1. Account name
     name = _ask("Название аккаунта (например account1): ", "account1")
 
@@ -180,11 +189,9 @@ async def add_account() -> None:
         DEFAULT_GPT_PROMPT,
     )
 
-    # 4. Telegram credentials
+    # 4. Phone number
     print(flush=True)
-    phone    = _ask("Номер телефона (например +79001234567): ")
-    api_id   = _ask_int("api_id (с my.telegram.org): ")
-    api_hash = _ask("api_hash (с my.telegram.org): ")
+    phone = _ask("Номер телефона (например +79001234567): ")
 
     # 5. Telegram auth
     print("\nПодключаюсь к Telegram...", flush=True)
@@ -234,8 +241,6 @@ async def add_account() -> None:
             pool,
             name=name,
             phone=phone,
-            api_id=api_id,
-            api_hash=api_hash,
             gpt_prompt=gpt_prompt,
             **proxy_data,
         )

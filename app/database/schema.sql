@@ -12,8 +12,8 @@ create table if not exists accounts (
     id               uuid primary key default gen_random_uuid(),
     name             text,
     phone            text not null,
-    api_id           integer not null,
-    api_hash         text not null,
+    api_id           integer not null,   -- копия из .env (для справки)
+    api_hash         text not null,      -- копия из .env (для справки)
     session_string   text,
     gpt_prompt       text,
     proxy_enabled    boolean default false,

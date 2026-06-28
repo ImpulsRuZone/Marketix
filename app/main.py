@@ -11,7 +11,7 @@ To add a new account first:
 import asyncio
 import logging
 
-from app.config import DATABASE_URL
+from app.config import DATABASE_URL, get_telegram_api
 from app.database.supabase_client import init_pool, close_pool
 from app.database.repositories import get_active_accounts
 from app.telegram.account_worker import AccountWorker
@@ -25,6 +25,12 @@ async def main() -> None:
 
     if not DATABASE_URL:
         logger.critical("DATABASE_URL is not set. Check your .env file.")
+        return
+
+    try:
+        get_telegram_api()
+    except RuntimeError as e:
+        logger.critical(str(e))
         return
 
     pool = await init_pool(DATABASE_URL)

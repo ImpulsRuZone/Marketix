@@ -44,8 +44,6 @@ async def create_account(
     pool: asyncpg.Pool,
     name: str,
     phone: str,
-    api_id: int,
-    api_hash: str,
     gpt_prompt: Optional[str] = None,
     proxy_enabled: bool = False,
     proxy_type: Optional[str] = None,
@@ -54,6 +52,9 @@ async def create_account(
     proxy_username: Optional[str] = None,
     proxy_password: Optional[str] = None,
 ) -> asyncpg.Record:
+    from app.config import get_telegram_api
+    api_id, api_hash = get_telegram_api()
+
     async with pool.acquire() as conn:
         account = await conn.fetchrow("""
             INSERT INTO accounts
