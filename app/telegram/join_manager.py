@@ -60,6 +60,9 @@ async def join_all_chats(
         if current_status == "joined":
             continue
 
+        if current_status == "excluded":
+            continue
+
         url = chat["chat_url"]
         did_join = await _join_one(
             client, account_id, chat, pool, db_log,

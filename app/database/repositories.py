@@ -164,6 +164,19 @@ async def deactivate_target_chat(
         )
 
 
+async def get_excluded_target_chat_ids(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+) -> set:
+    """Target chat UUIDs excluded from monitoring for this account only."""
+    rows = await pool.fetch("""
+        SELECT chat_id
+        FROM account_chats
+        WHERE account_id = $1 AND status = 'excluded'
+    """, _db_uuid(account_id))
+    return {str(row["chat_id"]) for row in rows}
+
+
 async def record_channel_exclusion(
     pool: asyncpg.Pool,
     account_id: UUID,

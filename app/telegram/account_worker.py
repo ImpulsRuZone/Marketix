@@ -104,6 +104,10 @@ class AccountWorker:
 
         # Слушаем посты сразу — не ждём окончания вступления во все каналы
         target_rows = await repo.get_joinable_target_chats(self.pool)
+        excluded_ids = await repo.get_excluded_target_chat_ids(self.pool, self.account_id)
+        if excluded_ids:
+            target_rows = [r for r in target_rows if str(r["id"]) not in excluded_ids]
+
         self._chat_urls = [row["chat_url"] for row in target_rows if row.get("chat_url")]
         if not self._chat_urls:
             self.db_log.warning("нет_чатов", "Нет целевых чатов в target_chats. Ожидание 60 сек.")
