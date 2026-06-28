@@ -108,6 +108,9 @@ async def upsert_target_chat(
     title: Optional[str] = None,
     chat_type: Optional[str] = None,
 ) -> asyncpg.Record:
+    # Some DB setups store telegram chat_id as text, not bigint
+    chat_id_db = str(chat_id) if chat_id is not None else None
+
     return await pool.fetchrow("""
         INSERT INTO target_chats (chat_url, chat_id, username, title, type)
         VALUES ($1, $2, $3, $4, $5)
@@ -117,7 +120,7 @@ async def upsert_target_chat(
                 title     = COALESCE(EXCLUDED.title, target_chats.title),
                 type      = COALESCE(EXCLUDED.type, target_chats.type)
         RETURNING *
-    """, chat_url, chat_id, username, title, chat_type)
+    """, chat_url, chat_id_db, username, title, chat_type)
 
 
 # ──────────────────────────────────────────────
