@@ -37,7 +37,7 @@ async def join_all_chats(
     """Entry point called by account_worker on startup."""
     target_chats = await repo.get_active_target_chats(pool)
     if not target_chats:
-        db_log.info("join_manager", "No active target chats found")
+        db_log.info("менеджер_вступлений", "Активные целевые чаты не найдены")
         return
 
     joined_chats = {
@@ -45,7 +45,7 @@ async def join_all_chats(
         for row in await repo.get_account_chats(pool, account_id)
     }
 
-    db_log.info("join_manager", f"Checking {len(target_chats)} chats to join")
+    db_log.info("менеджер_вступлений", f"Проверяю {len(target_chats)} чатов для вступления")
 
     for chat in target_chats:
         chat_db_id = str(chat["id"])
@@ -66,7 +66,7 @@ async def join_all_chats(
                 settings["join_delay_min_seconds"],
                 settings["join_delay_max_seconds"],
             )
-            db_log.info("join_manager", f"Waiting {delay}s before next join")
+            db_log.info("менеджер_вступлений", f"Ожидание {delay} сек перед следующим вступлением")
             await asyncio.sleep(delay)
 
 
@@ -86,7 +86,7 @@ async def _join_one(
     try:
         entity = await client.get_entity(url)
     except Exception as e:
-        db_log.error("join_error", f"Cannot resolve entity {url}: {e}")
+        db_log.error("ошибка_вступления", f"Не удалось найти канал {url}: {e}")
         await repo.upsert_account_chat(pool, account_id, chat_db_id, "failed", str(e))
         return False
 
@@ -121,7 +121,7 @@ async def _join_one(
             )
             linked_joined = await _try_join(
                 client, linked_entity,
-                f"linked group '{linked_title}'",
+                f"linked-группа «{linked_title}»",
                 account_id, linked_chat["id"], pool, db_log,
             )
             joined = joined or linked_joined
@@ -142,8 +142,8 @@ async def _save_join_status(
         )
     except Exception as e:
         db_log.error(
-            "db_save_error",
-            f"Telegram OK for {label}, but DB save failed: {e}",
+            "ошибка_сохранения_бд",
+            f"В Telegram всё ОК для {label}, но не удалось сохранить в БД: {e}",
         )
 
 
@@ -158,7 +158,7 @@ async def _try_join(
 ) -> bool:
     try:
         await client(JoinChannelRequest(entity))
-        db_log.info("joined", f"Joined: {label}")
+        db_log.info("вступил", f"Вступил: {label}")
         await _save_join_status(
             pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
@@ -166,7 +166,7 @@ async def _try_join(
         return True
 
     except UserAlreadyParticipantError:
-        db_log.info("already_joined", f"Already in: {label}")
+        db_log.info("уже_в_канале", f"Уже состоит: {label}")
         await _save_join_status(
             pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
@@ -174,17 +174,17 @@ async def _try_join(
         return False
 
     except FloodWaitError as e:
-        db_log.warning("flood_wait", f"FloodWait {e.seconds}s for {label}")
+        db_log.warning("флудвейт", f"FloodWait {e.seconds} сек для {label}")
         await asyncio.sleep(e.seconds + 15)
         await _save_join_status(pool, account_id, chat_db_id, "pending", db_log, label)
         return False
 
     except Exception as e:
         if "successfully requested to join" in str(e):
-            db_log.info("join_requested", f"Join request sent: {label}")
+            db_log.info("заявка_отправлена", f"Заявка на вступление отправлена: {label}")
             await _save_join_status(pool, account_id, chat_db_id, "requested", db_log, label)
             return False
-        db_log.error("join_error", f"Error joining {label}: {e}")
+        db_log.error("ошибка_вступления", f"Ошибка вступления в {label}: {e}")
         await _save_join_status(
             pool, account_id, chat_db_id, "failed", db_log, label, error_message=str(e),
         )

@@ -51,7 +51,7 @@ def verify_proxy_backend() -> Tuple[bool, str]:
 
     try:
         import python_socks.async_.asyncio  # noqa: F401
-        return True, "python-socks[asyncio] OK — Telethon будет использовать proxy"
+        return True, "python-socks[asyncio] установлен — Telethon будет использовать proxy"
     except ImportError:
         return False, (
             "Установлен python-socks без asyncio. "
@@ -67,9 +67,9 @@ def log_proxy_usage(account_name: str, proxy: Optional[dict]) -> None:
 
     ok, backend_msg = verify_proxy_backend()
     label = proxy_label(proxy)
-    logger.info("[%s] Proxy: %s", account_name, label)
+    logger.info("[%s] Прокси: %s", account_name, label)
     logger.info("[%s] %s", account_name, backend_msg)
     if not ok:
         logger.warning(
-            "[%s] Proxy скорее всего НЕ будет использован Telethon!", account_name
+            "[%s] Прокси, скорее всего, НЕ будет использован Telethon!", account_name
         )

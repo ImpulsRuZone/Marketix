@@ -21,13 +21,13 @@ async def init_pool(database_url: str) -> asyncpg.Pool:
         max_size=10,
         statement_cache_size=0,
     )
-    logger.info("Database pool initialized")
+    logger.info("Пул подключений к БД инициализирован")
     return _pool
 
 
 def get_pool() -> asyncpg.Pool:
     if _pool is None:
-        raise RuntimeError("Database pool is not initialized. Call init_pool() first.")
+        raise RuntimeError("Пул БД не инициализирован. Сначала вызовите init_pool().")
     return _pool
 
 
@@ -36,4 +36,4 @@ async def close_pool() -> None:
     if _pool:
         await _pool.close()
         _pool = None
-        logger.info("Database pool closed")
+        logger.info("Пул подключений к БД закрыт")

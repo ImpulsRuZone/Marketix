@@ -24,7 +24,7 @@ async def main() -> None:
     setup_logging()
 
     if not DATABASE_URL:
-        logger.critical("DATABASE_URL is not set. Check your .env file.")
+        logger.critical("DATABASE_URL не задан. Проверьте файл .env.")
         return
 
     try:
@@ -39,12 +39,12 @@ async def main() -> None:
         accounts = await get_active_accounts(pool)
         if not accounts:
             logger.warning(
-                "No active accounts found in DB. "
-                "Add one with: python -m app.telegram.account_login"
+                "В БД нет активных аккаунтов. "
+                "Добавьте аккаунт: python3 -m app.telegram.account_login"
             )
             return
 
-        logger.info(f"Loaded {len(accounts)} active account(s)")
+        logger.info(f"Загружено активных аккаунтов: {len(accounts)}")
 
         workers = [AccountWorker(account, pool) for account in accounts]
         await asyncio.gather(*(w.run() for w in workers))

@@ -35,4 +35,4 @@ def register_post_handler(
 
         await on_new_post(event)
 
-    logger.debug(f"Post handler registered for {len(chats)} chats")
+    logger.debug(f"Обработчик постов зарегистрирован для {len(chats)} чатов")

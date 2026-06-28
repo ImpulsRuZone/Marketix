@@ -64,7 +64,7 @@ class AccountWorker:
             try:
                 await self._start()
             except Exception as e:
-                self.db_log.error("worker_crash", f"Crashed: {e}. Restarting in 30s")
+                self.db_log.error("сбой_воркера", f"Сбой: {e}. Перезапуск через 30 сек")
                 await asyncio.sleep(30)
 
     # ──────────────────────────────────────────────────────────────
@@ -75,24 +75,24 @@ class AccountWorker:
         self._settings = await get_settings(self.pool, self.account_id)
 
         if not self._settings.get("is_active", True):
-            self.db_log.info("worker_paused", "Account is paused (is_active=false). Sleeping 60s.")
+            self.db_log.info("воркер_на_паузе", "Аккаунт на паузе (is_active=false). Ожидание 60 сек.")
             await asyncio.sleep(60)
             return
 
-        self.db_log.info("worker_start", "Starting")
+        self.db_log.info("запуск_воркера", "Запуск")
         await self.client.connect()
 
         if not await self.client.is_user_authorized():
             self.db_log.error(
-                "not_authorized",
-                "Session is invalid. Run: python -m app.telegram.account_login",
+                "не_авторизован",
+                "Сессия недействительна. Выполните: python3 -m app.telegram.account_login",
             )
             await self.client.disconnect()
             await asyncio.sleep(300)
             return
 
         me = await self.client.get_me()
-        self.db_log.info("authorized", f"Logged in as {me.first_name} (id={me.id})")
+        self.db_log.info("авторизован", f"Вход выполнен: {me.first_name} (id={me.id})")
 
         # Wait if inside sleep window
         await self._wait_if_sleeping()
@@ -105,7 +105,7 @@ class AccountWorker:
         # Build list of chat URLs to listen to
         self._chat_urls = await self._get_chat_identifiers()
         if not self._chat_urls:
-            self.db_log.warning("no_chats", "No joined chats to listen to. Sleeping 60s.")
+            self.db_log.warning("нет_чатов", "Нет вступивших чатов для прослушивания. Ожидание 60 сек.")
             await self.client.disconnect()
             await asyncio.sleep(60)
             return
@@ -113,7 +113,7 @@ class AccountWorker:
         # Register event handler
         register_post_handler(self.client, self._chat_urls, self._on_new_post)
 
-        self.db_log.info("listening", f"Listening to {len(self._chat_urls)} chats")
+        self.db_log.info("прослушивание", f"Слушаю {len(self._chat_urls)} чатов")
         await self.client.run_until_disconnected()
 
     # ──────────────────────────────────────────────────────────────
@@ -133,12 +133,12 @@ class AccountWorker:
             self._settings["sleep_end_time"],
             self._settings["timezone"],
         ):
-            self.db_log.info("sleeping", "In sleep window — skipping post")
+            self.db_log.info("сон", "Окно сна — пост пропущен")
             return
 
         # Check scheduler
         if not await should_comment(self.pool, self.account_id, self._settings):
-            self.db_log.info("post_skipped", "Skipped by scheduler")
+            self.db_log.info("пост_пропущен", "Пропущен планировщиком")
             return
 
         channel = await event.get_chat()
@@ -149,8 +149,8 @@ class AccountWorker:
         # Random delay before acting (human-like behavior)
         delay = random_delay(60, 300)
         self.db_log.info(
-            "new_post",
-            f"[{channel_name}] New post, waiting {delay}s",
+            "новый_пост",
+            f"[{channel_name}] Новый пост, ожидание {delay} сек",
             payload={"delay": delay},
         )
         await asyncio.sleep(delay)
@@ -179,7 +179,7 @@ class AccountWorker:
                 account_prompt=self.account.get("gpt_prompt"),
             )
         except Exception as e:
-            self.db_log.error("gpt_error", f"GPT error: {e}")
+            self.db_log.error("ошибка_gpt", f"Ошибка GPT: {e}")
             return
 
         # Send comment
@@ -210,8 +210,8 @@ class AccountWorker:
                 self._settings["timezone"],
             )
             self.db_log.info(
-                "sleep_window",
-                f"In sleep window, waiting {secs}s until wake",
+                "окно_сна",
+                f"Окно сна, ожидание {secs} сек до пробуждения",
             )
             await asyncio.sleep(min(secs + 60, SLEEP_POLL_INTERVAL))
 

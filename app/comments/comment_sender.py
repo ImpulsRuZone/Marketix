@@ -39,11 +39,11 @@ async def send_comment(
         full = await client(GetFullChannelRequest(channel_entity))
         linked_id = full.full_chat.linked_chat_id
     except Exception as e:
-        db_log.error("get_linked_group", f"[{channel_name}] Cannot get full channel: {e}")
+        db_log.error("ошибка_linked_группы", f"[{channel_name}] Не удалось получить данные канала: {e}")
         return False
 
     if not linked_id:
-        db_log.warning("no_linked_group", f"[{channel_name}] No linked group, skipping")
+        db_log.warning("нет_linked_группы", f"[{channel_name}] Нет linked-группы, пропускаю")
         return False
 
     comment_row = await repo.create_comment(
@@ -74,11 +74,11 @@ async def _try_send(
             comment_to=msg_id,
         )
         await repo.mark_comment_sent(pool, comment_db_id, comment)
-        db_log.info("comment_sent", f"[{label}] Sent: {comment[:60]}")
+        db_log.info("комментарий_отправлен", f"[{label}] Отправлено: {comment[:60]}")
         return True
 
     except MsgIdInvalidError:
-        db_log.info("searching_post", f"[{label}] MsgIdInvalid — searching in linked group")
+        db_log.info("поиск_поста", f"[{label}] MsgIdInvalid — ищу пост в linked-группе")
         async for msg in client.iter_messages(linked_id, limit=20):
             if msg.fwd_from and msg.fwd_from.channel_post == msg_id:
                 try:
@@ -88,18 +88,18 @@ async def _try_send(
                         comment_to=msg.id,
                     )
                     await repo.mark_comment_sent(pool, comment_db_id, comment)
-                    db_log.info("comment_sent", f"[{label}] Sent via linked id: {comment[:60]}")
+                    db_log.info("комментарий_отправлен", f"[{label}] Отправлено через linked id: {comment[:60]}")
                     return True
                 except Exception as e:
                     await repo.mark_comment_failed(pool, comment_db_id, str(e))
-                    db_log.error("send_failed", f"[{label}] {e}")
+                    db_log.error("ошибка_отправки", f"[{label}] {e}")
                     return False
 
-        await repo.mark_comment_failed(pool, comment_db_id, "Post not found in linked group")
-        db_log.warning("post_not_found", f"[{label}] Post not found in linked group")
+        await repo.mark_comment_failed(pool, comment_db_id, "Пост не найден в linked-группе")
+        db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
         return False
 
     except Exception as e:
         await repo.mark_comment_failed(pool, comment_db_id, str(e))
-        db_log.error("send_failed", f"[{label}] {e}")
+        db_log.error("ошибка_отправки", f"[{label}] {e}")
         return False

@@ -257,4 +257,4 @@ async def write_log(
         """, account_id, level_db, event_type, message,
             json.dumps(payload if payload is not None else {}))
     except Exception as e:
-        logger.error(f"Failed to write log to DB: {e}")
+        logger.error(f"Не удалось записать лог в БД: {e}")
