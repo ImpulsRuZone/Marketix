@@ -25,7 +25,7 @@ from app.logs.logger import DBLogger
 from app.settings.settings_manager import get_settings
 from app.telegram.client_factory import create_client
 from app.telegram.join_manager import join_all_chats
-from app.telegram.post_listener import register_post_handler
+from app.telegram.post_listener import register_post_handler, remove_monitored_channel
 from app.telegram.chat_utils import resolve_monitored_ids, peer_id
 from app.comments.generator import generate_comment
 from app.comments.comment_scheduler import should_comment
@@ -223,7 +223,7 @@ class AccountWorker:
             self.db_log.error("ошибка_gpt", f"Ошибка GPT: {e}")
             return
 
-        await send_comment(
+        result = await send_comment(
             client=self.client,
             channel_entity=channel,
             msg_id=event.message.id,
@@ -236,9 +236,46 @@ class AccountWorker:
             post_text=post_text,
         )
 
+        if result.exclude_channel:
+            await self._exclude_channel_from_monitoring(
+                channel,
+                channel_name,
+                "нет доступа к linked-группе для комментариев",
+            )
+
     # ──────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────
+
+    async def _exclude_channel_from_monitoring(
+        self,
+        channel,
+        channel_name: str,
+        reason: str,
+    ) -> None:
+        removed = remove_monitored_channel(self._monitored_ids, channel)
+        if not removed:
+            return
+
+        self.db_log.warning(
+            "канал_исключён",
+            f"[{channel_name}] Исключён из прослушивания: {reason}. "
+            f"Осталось каналов: {len(self._monitored_ids)}",
+        )
+
+        channel_username = getattr(channel, "username", "")
+        chat_url = f"@{channel_username}" if channel_username else None
+        try:
+            await repo.deactivate_target_chat(
+                self.pool,
+                chat_url=chat_url,
+                telegram_chat_id=channel.id,
+            )
+        except Exception as e:
+            self.db_log.warning(
+                "ошибка_бд",
+                f"[{channel_name}] Канал исключён из памяти, но не деактивирован в БД: {e}",
+            )
 
     async def _wait_if_sleeping(self) -> None:
         while is_sleep_time(

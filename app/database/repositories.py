@@ -144,6 +144,26 @@ async def upsert_target_chat(
     """, chat_url, chat_id_db, username, title, chat_type, active_db)
 
 
+async def deactivate_target_chat(
+    pool: asyncpg.Pool,
+    *,
+    chat_url: Optional[str] = None,
+    telegram_chat_id: Optional[int] = None,
+) -> None:
+    """Marks channel as inactive so it won't be monitored after restart."""
+    if chat_url:
+        await pool.execute(
+            "UPDATE target_chats SET is_active = false WHERE chat_url = $1",
+            chat_url,
+        )
+        return
+    if telegram_chat_id is not None:
+        await pool.execute(
+            "UPDATE target_chats SET is_active = false WHERE chat_id = $1",
+            str(telegram_chat_id),
+        )
+
+
 # ──────────────────────────────────────────────
 # Account chats
 # ──────────────────────────────────────────────

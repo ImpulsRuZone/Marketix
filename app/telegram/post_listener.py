@@ -50,3 +50,13 @@ def register_post_handler(
 def add_monitored_channel(monitored_ids: Set[int], entity) -> None:
     """Add a channel/group to the live monitored set after joining."""
     monitored_ids.add(peer_id(entity))
+
+
+def remove_monitored_channel(monitored_ids: Set[int], entity_or_id) -> bool:
+    """Remove a channel from the live monitored set. Returns True if removed."""
+    pid = peer_id(entity_or_id)
+    if pid in monitored_ids:
+        monitored_ids.discard(pid)
+        return True
+    return False
+
