@@ -144,6 +144,10 @@ async def upsert_account_chat(
     error_message: Optional[str] = None,
     joined_at: Optional[datetime] = None,
 ) -> None:
+    status_db = status.lower()
+    if status_db not in ("pending", "joined", "failed", "requested"):
+        status_db = "pending"
+
     await pool.execute("""
         INSERT INTO account_chats
             (account_id, chat_id, status, last_join_attempt_at, joined_at, error_message)
@@ -153,7 +157,7 @@ async def upsert_account_chat(
                 last_join_attempt_at = now(),
                 joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
                 error_message        = EXCLUDED.error_message
-    """, account_id, chat_id, status, joined_at, error_message)
+    """, account_id, chat_id, status_db, joined_at, error_message)
 
 
 # ──────────────────────────────────────────────

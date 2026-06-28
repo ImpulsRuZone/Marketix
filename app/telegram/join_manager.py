@@ -131,6 +131,22 @@ async def _join_one(
     return joined
 
 
+async def _save_join_status(
+    pool, account_id, chat_db_id, status, db_log, label,
+    error_message=None, joined_at=None,
+) -> None:
+    try:
+        await repo.upsert_account_chat(
+            pool, account_id, chat_db_id, status,
+            error_message=error_message, joined_at=joined_at,
+        )
+    except Exception as e:
+        db_log.error(
+            "db_save_error",
+            f"Telegram OK for {label}, but DB save failed: {e}",
+        )
+
+
 async def _try_join(
     client: TelegramClient,
     entity,
@@ -143,16 +159,16 @@ async def _try_join(
     try:
         await client(JoinChannelRequest(entity))
         db_log.info("joined", f"Joined: {label}")
-        await repo.upsert_account_chat(
-            pool, account_id, chat_db_id, "joined",
+        await _save_join_status(
+            pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
         )
         return True
 
     except UserAlreadyParticipantError:
         db_log.info("already_joined", f"Already in: {label}")
-        await repo.upsert_account_chat(
-            pool, account_id, chat_db_id, "joined",
+        await _save_join_status(
+            pool, account_id, chat_db_id, "joined", db_log, label,
             joined_at=datetime.now(timezone.utc),
         )
         return False
@@ -160,14 +176,16 @@ async def _try_join(
     except FloodWaitError as e:
         db_log.warning("flood_wait", f"FloodWait {e.seconds}s for {label}")
         await asyncio.sleep(e.seconds + 15)
-        await repo.upsert_account_chat(pool, account_id, chat_db_id, "pending")
+        await _save_join_status(pool, account_id, chat_db_id, "pending", db_log, label)
         return False
 
     except Exception as e:
         if "successfully requested to join" in str(e):
             db_log.info("join_requested", f"Join request sent: {label}")
-            await repo.upsert_account_chat(pool, account_id, chat_db_id, "requested")
+            await _save_join_status(pool, account_id, chat_db_id, "requested", db_log, label)
             return False
         db_log.error("join_error", f"Error joining {label}: {e}")
-        await repo.upsert_account_chat(pool, account_id, chat_db_id, "failed", str(e))
+        await _save_join_status(
+            pool, account_id, chat_db_id, "failed", db_log, label, error_message=str(e),
+        )
         return False

@@ -139,3 +139,7 @@ alter table account_chats add column if not exists updated_at timestamptz defaul
 alter table logs alter column payload drop not null;
 alter table logs drop constraint if exists logs_level_check;
 alter table logs add constraint logs_level_check check (level in ('info', 'warning', 'error'));
+
+alter table account_chats drop constraint if exists account_chats_status_check;
+alter table account_chats add constraint account_chats_status_check
+    check (status in ('pending', 'joined', 'failed', 'requested'));
