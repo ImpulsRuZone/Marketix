@@ -41,9 +41,10 @@ SLEEP_POLL_INTERVAL = 300  # 5 minutes
 
 class AccountWorker:
 
-    def __init__(self, account, pool):
+    def __init__(self, account, pool, join_on_startup: bool = False):
         self.account = account
         self.pool = pool
+        self.join_on_startup = join_on_startup
         self.account_id: UUID = account["id"]
         self.name: str = account["name"] or str(self.account_id)[:8]
         self.client: TelegramClient = create_client(account)
@@ -110,23 +111,34 @@ class AccountWorker:
 
         self._monitored_ids = await resolve_monitored_ids(self.client, target_rows)
         register_post_handler(self.client, self._monitored_ids, self._on_new_post)
-        self.db_log.info(
-            "прослушивание",
-            f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
-            f"(вступление идёт в фоне)",
-        )
 
-        # Вступление в оставшиеся каналы — параллельно с прослушиванием
-        asyncio.create_task(
-            join_all_chats(
-                self.client,
-                self.account_id,
-                self._settings,
-                self.pool,
-                self.db_log,
-                monitored_ids=self._monitored_ids,
+        if self.join_on_startup:
+            self.db_log.info(
+                "прослушивание",
+                f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
+                f"(вступление в новые — в фоне)",
             )
-        )
+            asyncio.create_task(
+                join_all_chats(
+                    self.client,
+                    self.account_id,
+                    self._settings,
+                    self.pool,
+                    self.db_log,
+                    monitored_ids=self._monitored_ids,
+                )
+            )
+        else:
+            self.db_log.info(
+                "прослушивание",
+                f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
+                f"(вступление отключено — работаю с текущим списком)",
+            )
+            self.db_log.info(
+                "вступление_пропущено",
+                "Новые каналы не добавляются. Для вступления перезапустите с --join "
+                "или JOIN_ON_STARTUP=true",
+            )
 
         await self.client.run_until_disconnected()
 

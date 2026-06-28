@@ -108,6 +108,28 @@ INSERT INTO target_chats (chat_url) VALUES
 python3 -m app.main
 ```
 
+При запуске в терминале бот спросит:
+
+```
+Вступать в новые каналы из списка target_chats?
+  1) Да — вступить в каналы, где аккаунт ещё не состоит
+  2) Нет — только слушать посты (без новых вступлений)
+```
+
+Флаги командной строки:
+
+```bash
+python3 -m app.main --join      # сразу вступать в новые каналы
+python3 -m app.main --no-join   # не вступать, только комментировать
+```
+
+Для systemd (без интерактива) в `.env`:
+
+```env
+JOIN_ON_STARTUP=false   # по умолчанию — не вступать при рестарте
+JOIN_ON_STARTUP=true    # вступать в новые каналы при каждом рестарте
+```
+
 ### Или через systemd (VPS)
 
 Установка и автозапуск при перезагрузке сервера:
@@ -163,7 +185,7 @@ main.py
   └── для каждого active аккаунта → AccountWorker.run()
         ├── client_factory: создать TelegramClient (StringSession из БД)
         ├── проверить окно сна → если спим, ждать
-        ├── join_manager: вступить во все target_chats
+        ├── join_manager: вступить во все target_chats (если включено при старте)
         ├── post_listener: зарегистрировать обработчик NewMessage
         └── при новом посте:
               ├── comment_scheduler: комментировать? (% + лимит)
