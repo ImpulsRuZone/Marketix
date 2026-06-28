@@ -33,15 +33,19 @@ logger = logging.getLogger(__name__)
 # Low-level input helpers (bypass encoding issues)
 # ──────────────────────────────────────────────
 
+def _normalize(val: str) -> str:
+    return val.strip().replace("\r", "").replace("\ufeff", "")
+
+
 def _readline() -> str:
     """Read a line from stdin robustly, regardless of terminal encoding."""
     raw = sys.stdin.buffer.readline()
     for enc in ("utf-8", "cp1251", "latin-1"):
         try:
-            return raw.decode(enc).strip()
+            return _normalize(raw.decode(enc))
         except UnicodeDecodeError:
             continue
-    return raw.decode("latin-1", errors="replace").strip()
+    return _normalize(raw.decode("latin-1", errors="replace"))
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -61,8 +65,14 @@ def _ask_int(prompt: str) -> int:
 
 
 def _ask_bool(prompt: str) -> bool:
-    val = _ask(prompt).lower()
-    return val in ("y", "yes", "1", "д", "да") or val.startswith("y") or val.startswith("д")
+    val = _normalize(_ask(prompt)).lower()
+    if not val:
+        return False
+    if val[0] in ("y", "д", "1") or val in ("yes", "да"):
+        return True
+    if val[0] in ("n", "н", "0") or val in ("no", "нет"):
+        return False
+    return val.startswith("y") or val.startswith("д")
 
 
 def _ask_choice(prompt: str, choices: list) -> str:
@@ -142,8 +152,12 @@ async def add_account() -> None:
     # 1. Account name
     name = _ask("Название аккаунта (например account1): ", "account1")
 
-    # 2. Proxy
-    use_proxy = _ask_bool("Использовать proxy? [y/n]: ")
+    # 2. Proxy (меню с цифрами — надёжнее чем y/n в SSH)
+    print("\nИспользовать proxy?", flush=True)
+    print("  1) Да", flush=True)
+    print("  2) Нет", flush=True)
+    proxy_answer = _ask("Выбери [1-2]: ")
+    use_proxy = proxy_answer == "1" or _normalize(proxy_answer).lower() in ("да", "y", "yes")
 
     if use_proxy:
         print("\n--- Настройки proxy ---", flush=True)
@@ -158,8 +172,8 @@ async def add_account() -> None:
         if ok:
             print("  [OK] Proxy работает — соединение с Telegram установлено.", flush=True)
         else:
-            print("  [FAIL] Proxy недоступен. Продолжить всё равно? [y/n]: ", end="", flush=True)
-            if not _ask_bool(""):
+            print("  [ОШИБКА] Proxy недоступен.", flush=True)
+            if not _ask_bool("  Продолжить без проверки proxy? [y/n]: "):
                 print("Отменено.", flush=True)
                 return
 
