@@ -14,7 +14,13 @@ _pool: Optional[asyncpg.Pool] = None
 
 async def init_pool(database_url: str) -> asyncpg.Pool:
     global _pool
-    _pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10)
+    # statement_cache_size=0 required for Supabase PgBouncer (transaction pooler)
+    _pool = await asyncpg.create_pool(
+        database_url,
+        min_size=2,
+        max_size=10,
+        statement_cache_size=0,
+    )
     logger.info("Database pool initialized")
     return _pool
 

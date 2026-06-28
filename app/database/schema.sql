@@ -129,3 +129,9 @@ create index if not exists idx_comments_created      on comments(created_at);
 create index if not exists idx_logs_account          on logs(account_id);
 create index if not exists idx_logs_created          on logs(created_at);
 create index if not exists idx_posts_chat            on posts(chat_id);
+
+-- ── Patches for databases created from an older/partial schema ──
+alter table target_chats add column if not exists username text;
+alter table target_chats add column if not exists title text;
+alter table target_chats add column if not exists type text;
+alter table logs alter column payload drop not null;

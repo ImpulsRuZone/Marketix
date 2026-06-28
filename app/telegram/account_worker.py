@@ -221,7 +221,7 @@ class AccountWorker:
         result = []
         for row in rows:
             if row["status"] in ("joined", "requested"):
-                ident = row["username"] or row.get("chat_id")
-                if ident:
-                    result.append(f"@{ident}" if isinstance(ident, str) and not ident.startswith("@") else ident)
+                url = row["chat_url"]
+                if url:
+                    result.append(url)
         return result

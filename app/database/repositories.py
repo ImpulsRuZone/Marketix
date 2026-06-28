@@ -127,7 +127,7 @@ async def upsert_target_chat(
 
 async def get_account_chats(pool: asyncpg.Pool, account_id: UUID) -> List[asyncpg.Record]:
     return await pool.fetch("""
-        SELECT ac.*, tc.chat_url, tc.username, tc.title
+        SELECT ac.*, tc.chat_url, tc.title
         FROM account_chats ac
         JOIN target_chats tc ON tc.id = ac.chat_id
         WHERE ac.account_id = $1
@@ -243,8 +243,8 @@ async def write_log(
     try:
         await pool.execute("""
             INSERT INTO logs (account_id, level, event_type, message, payload)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5::jsonb)
         """, account_id, level, event_type, message,
-            json.dumps(payload) if payload else None)
+            json.dumps(payload if payload is not None else {}))
     except Exception as e:
         logger.error(f"Failed to write log to DB: {e}")
