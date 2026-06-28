@@ -147,6 +147,12 @@ class AccountWorker:
     # ──────────────────────────────────────────────────────────────
 
     async def _on_new_post(self, event) -> None:
+        try:
+            await self._handle_new_post(event)
+        except Exception as e:
+            self.db_log.error("ошибка_обработки_поста", f"Не удалось обработать пост: {e}")
+
+    async def _handle_new_post(self, event) -> None:
         # Refresh settings each post (allows live updates without restart)
         self._settings = await get_settings(self.pool, self.account_id)
 
