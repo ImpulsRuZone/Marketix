@@ -18,6 +18,7 @@ from app.database.db_types import as_db_uuid
 from app.logs.logger import DBLogger
 from app.telegram.permission_errors import (
     get_permission_error_text,
+    is_permission_error,
     should_exclude_channel,
 )
 
@@ -35,6 +36,7 @@ async def send_comment(
     pool,
     db_log: DBLogger,
     post_text: Optional[str] = None,
+    event=None,
 ) -> CommentSendResult:
     """Posts comment to Telegram. DB logging is optional and never blocks sending."""
     channel_name = getattr(channel_entity, "title", "?")
@@ -153,6 +155,7 @@ async def _send_to_telegram(
     comment: str,
     db_log: DBLogger,
     label: str,
+    event=None,
 ) -> Tuple[bool, bool, Optional[str]]:
     """
     Returns (success, exclude_channel, error_message).
@@ -160,6 +163,20 @@ async def _send_to_telegram(
     comment_to must target the channel post on the channel entity — Telethon
     resolves the linked discussion group via GetDiscussionMessageRequest.
     """
+    if event is not None:
+        try:
+            await event.respond(comment, comment_to=event.id)
+            db_log.info(
+                "комментарий_отправлен",
+                f"[{label}] Отправлено через event.respond: {comment[:60]}",
+            )
+            return True, False, None
+        except Exception as e:
+            db_log.info(
+                "поиск_поста",
+                f"[{label}] event.respond не сработал ({e}), пробую другие способы",
+            )
+
     last_error: Optional[str] = None
     last_exclude = False
 
@@ -181,8 +198,8 @@ async def _send_to_telegram(
 
         except Exception as e:
             err = get_permission_error_text(e)
-            if should_exclude_channel(e):
-                last_exclude = True
+            if is_permission_error(e):
+                last_exclude = should_exclude_channel(e)
                 last_error = err
                 if attempt == 0 and linked_entity is not None:
                     db_log.warning(
@@ -192,7 +209,7 @@ async def _send_to_telegram(
                     await _try_join_linked(client, linked_entity, db_log, label)
                     continue
                 db_log.error("ошибка_отправки", f"[{label}] {e}")
-                return False, True, err
+                return False, last_exclude, err
 
             db_log.error("ошибка_отправки", f"[{label}] {e}")
             return False, False, err

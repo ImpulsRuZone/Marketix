@@ -31,5 +31,9 @@ def is_permission_error(exc: Exception) -> bool:
 
 
 def should_exclude_channel(exc: Exception) -> bool:
-    """Channel must be removed from monitoring for this error."""
-    return is_mandatory_exclusion_error(exc) or is_permission_error(exc)
+    """Remove channel from monitoring only for definitive access denial."""
+    text = get_permission_error_text(exc).lower()
+    if is_mandatory_exclusion_error(exc):
+        return True
+    # Permanent write blocks — not transient API lookup failures (GetDiscussionMessage etc.)
+    return "chat_write_forbidden" in text or "you were banned" in text
