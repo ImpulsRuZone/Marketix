@@ -26,6 +26,7 @@ from app.settings.settings_manager import get_settings
 from app.telegram.client_factory import create_client
 from app.telegram.join_manager import join_all_chats
 from app.telegram.post_listener import register_post_handler
+from app.telegram.chat_utils import resolve_monitored_ids, peer_id
 from app.comments.generator import generate_comment
 from app.comments.comment_scheduler import should_comment
 from app.comments.comment_sender import send_comment
@@ -53,6 +54,7 @@ class AccountWorker:
         )
         self._settings: dict = {}
         self._chat_urls: list = []
+        self._monitored_ids: set[int] = set()
 
     # ──────────────────────────────────────────────────────────────
     # Public entry point
@@ -97,23 +99,35 @@ class AccountWorker:
         # Wait if inside sleep window
         await self._wait_if_sleeping()
 
-        # Join all chats
-        await join_all_chats(
-            self.client, self.account_id, self._settings, self.pool, self.db_log
-        )
-
-        # Build list of chat URLs to listen to
-        self._chat_urls = await self._get_chat_identifiers()
+        # Слушаем посты сразу — не ждём окончания вступления во все каналы
+        target_rows = await repo.get_active_target_chats(self.pool)
+        self._chat_urls = [row["chat_url"] for row in target_rows if row.get("chat_url")]
         if not self._chat_urls:
-            self.db_log.warning("нет_чатов", "Нет вступивших чатов для прослушивания. Ожидание 60 сек.")
+            self.db_log.warning("нет_чатов", "Нет целевых чатов в target_chats. Ожидание 60 сек.")
             await self.client.disconnect()
             await asyncio.sleep(60)
             return
 
-        # Register event handler
-        register_post_handler(self.client, self._chat_urls, self._on_new_post)
+        self._monitored_ids = await resolve_monitored_ids(self.client, target_rows)
+        register_post_handler(self.client, self._monitored_ids, self._on_new_post)
+        self.db_log.info(
+            "прослушивание",
+            f"Слушаю {len(self._monitored_ids)}/{len(self._chat_urls)} каналов "
+            f"(вступление идёт в фоне)",
+        )
 
-        self.db_log.info("прослушивание", f"Слушаю {len(self._chat_urls)} чатов")
+        # Вступление в оставшиеся каналы — параллельно с прослушиванием
+        asyncio.create_task(
+            join_all_chats(
+                self.client,
+                self.account_id,
+                self._settings,
+                self.pool,
+                self.db_log,
+                monitored_ids=self._monitored_ids,
+            )
+        )
+
         await self.client.run_until_disconnected()
 
     # ──────────────────────────────────────────────────────────────
@@ -145,6 +159,8 @@ class AccountWorker:
         channel_name = getattr(channel, "title", "?")
         channel_username = getattr(channel, "username", "")
         post_text = event.message.text
+
+        self._monitored_ids.add(peer_id(channel))
 
         # Random delay before acting (human-like behavior)
         delay = random_delay(60, 300)
@@ -215,13 +231,11 @@ class AccountWorker:
             )
             await asyncio.sleep(min(secs + 60, SLEEP_POLL_INTERVAL))
 
+    async def _get_listen_chats(self) -> list:
+        """Список каналов для прослушивания — все активные target_chats."""
+        rows = await repo.get_active_target_chats(self.pool)
+        return [row["chat_url"] for row in rows if row.get("chat_url")]
+
     async def _get_chat_identifiers(self) -> list:
-        """Returns list of chat usernames/ids for event handler registration."""
-        rows = await repo.get_account_chats(self.pool, self.account_id)
-        result = []
-        for row in rows:
-            if row["status"] in ("joined", "requested"):
-                url = row["chat_url"]
-                if url:
-                    result.append(url)
-        return result
+        """Устаревший метод — оставлен для совместимости."""
+        return await self._get_listen_chats()

@@ -13,7 +13,7 @@ Logic:
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional, Set
 from uuid import UUID
 
 from telethon import TelegramClient
@@ -22,6 +22,8 @@ from telethon.tl.functions.channels import JoinChannelRequest, GetFullChannelReq
 
 from app.database import repositories as repo
 from app.logs.logger import DBLogger
+from app.telegram.chat_utils import normalize_chat_url
+from app.telegram.post_listener import add_monitored_channel
 from app.utils.random_utils import random_delay
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ async def join_all_chats(
     settings: dict,
     pool,
     db_log: DBLogger,
+    monitored_ids: Optional[Set[int]] = None,
 ) -> None:
     """Entry point called by account_worker on startup."""
     target_chats = await repo.get_active_target_chats(pool)
@@ -59,6 +62,7 @@ async def join_all_chats(
             client, account_id, chat, pool, db_log,
             settings["join_delay_min_seconds"],
             settings["join_delay_max_seconds"],
+            monitored_ids=monitored_ids,
         )
 
         if did_join:
@@ -78,9 +82,10 @@ async def _join_one(
     db_log: DBLogger,
     delay_min: int,
     delay_max: int,
+    monitored_ids: Optional[Set[int]] = None,
 ) -> bool:
     """Joins one chat + its linked group. Returns True if any join happened."""
-    url = chat_row["chat_url"]
+    url = normalize_chat_url(chat_row["chat_url"])
     chat_db_id = chat_row["id"]
 
     try:
@@ -104,13 +109,20 @@ async def _join_one(
     )
 
     joined = await _try_join(client, entity, f"{title} ({url})", account_id, chat_db_id, pool, db_log)
+    if monitored_ids is not None:
+        add_monitored_channel(monitored_ids, entity)
 
     # Join linked discussion group
     try:
         full = await client(GetFullChannelRequest(entity))
         linked_id = full.full_chat.linked_chat_id
         if linked_id:
-            linked_entity = await client.get_entity(linked_id)
+            linked_entity = next(
+                (chat for chat in full.chats if chat.id == linked_id),
+                None,
+            )
+            if linked_entity is None:
+                linked_entity = await client.get_entity(linked_id)
             linked_title = getattr(linked_entity, "title", str(linked_id))
             linked_chat = await repo.upsert_target_chat(
                 pool,

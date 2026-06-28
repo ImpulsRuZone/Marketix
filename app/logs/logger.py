@@ -14,6 +14,8 @@ def setup_logging(level: str = "INFO") -> None:
         format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # Telethon "Got difference for channel" спамит на INFO
+    logging.getLogger("telethon").setLevel(logging.WARNING)
 
 
 class DBLogger:
