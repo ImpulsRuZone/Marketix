@@ -115,8 +115,7 @@ async def upsert_target_chat(
             SET chat_id   = COALESCE(EXCLUDED.chat_id, target_chats.chat_id),
                 username  = COALESCE(EXCLUDED.username, target_chats.username),
                 title     = COALESCE(EXCLUDED.title, target_chats.title),
-                type      = COALESCE(EXCLUDED.type, target_chats.type),
-                updated_at = now()
+                type      = COALESCE(EXCLUDED.type, target_chats.type)
         RETURNING *
     """, chat_url, chat_id, username, title, chat_type)
 
@@ -150,8 +149,7 @@ async def upsert_account_chat(
             SET status               = EXCLUDED.status,
                 last_join_attempt_at = now(),
                 joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
-                error_message        = EXCLUDED.error_message,
-                updated_at           = now()
+                error_message        = EXCLUDED.error_message
     """, account_id, chat_id, status, joined_at, error_message)
 
 
@@ -240,11 +238,16 @@ async def write_log(
     account_id: Optional[UUID] = None,
     payload: Optional[dict] = None,
 ) -> None:
+    # DB check constraint expects lowercase: info | warning | error
+    level_db = level.lower()
+    if level_db not in ("info", "warning", "error"):
+        level_db = "info"
+
     try:
         await pool.execute("""
             INSERT INTO logs (account_id, level, event_type, message, payload)
             VALUES ($1, $2, $3, $4, $5::jsonb)
-        """, account_id, level, event_type, message,
+        """, account_id, level_db, event_type, message,
             json.dumps(payload if payload is not None else {}))
     except Exception as e:
         logger.error(f"Failed to write log to DB: {e}")

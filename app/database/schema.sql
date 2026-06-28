@@ -134,4 +134,8 @@ create index if not exists idx_posts_chat            on posts(chat_id);
 alter table target_chats add column if not exists username text;
 alter table target_chats add column if not exists title text;
 alter table target_chats add column if not exists type text;
+alter table target_chats add column if not exists updated_at timestamptz default now();
+alter table account_chats add column if not exists updated_at timestamptz default now();
 alter table logs alter column payload drop not null;
+alter table logs drop constraint if exists logs_level_check;
+alter table logs add constraint logs_level_check check (level in ('info', 'warning', 'error'));
