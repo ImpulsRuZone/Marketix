@@ -225,6 +225,21 @@ async def create_comment(
         generated_comment, post_text_db)
 
 
+async def create_comment_legacy(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    chat_id: Optional[UUID],
+    post_id: Optional[UUID],
+    generated_comment: str,
+) -> asyncpg.Record:
+    """Fallback for schemas without comments.post_text column."""
+    return await pool.fetchrow("""
+        INSERT INTO comments (account_id, chat_id, post_id, generated_comment)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+    """, _db_uuid(account_id), _db_uuid(chat_id), _db_uuid(post_id), generated_comment)
+
+
 async def mark_comment_sent(
     pool: asyncpg.Pool,
     comment_id,

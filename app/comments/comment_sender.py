@@ -8,14 +8,22 @@ from typing import Optional
 from uuid import UUID
 
 from telethon import TelegramClient
-from telethon.errors import MsgIdInvalidError
-from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.errors import MsgIdInvalidError, UserAlreadyParticipantError
+from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelRequest
 
 from app.database import repositories as repo
 from app.database.db_types import as_db_uuid
 from app.logs.logger import DBLogger
 
 logger = logging.getLogger(__name__)
+
+_PERMISSION_ERRORS = (
+    "lack permission",
+    "private",
+    "banned",
+    "CHANNEL_PRIVATE",
+    "CHAT_WRITE_FORBIDDEN",
+)
 
 
 async def send_comment(
@@ -28,6 +36,7 @@ async def send_comment(
     post_db_id: Optional[UUID],
     pool,
     db_log: DBLogger,
+    post_text: Optional[str] = None,
 ) -> bool:
     """Posts comment to Telegram. DB logging is optional and never blocks sending."""
     channel_name = getattr(channel_entity, "title", "?")
@@ -35,6 +44,12 @@ async def send_comment(
     try:
         full = await client(GetFullChannelRequest(channel_entity))
         linked_id = full.full_chat.linked_chat_id
+        linked_entity = None
+        if linked_id:
+            linked_entity = next(
+                (chat for chat in full.chats if chat.id == linked_id),
+                None,
+            )
     except Exception as e:
         db_log.error("ошибка_linked_группы", f"[{channel_name}] Не удалось получить данные канала: {e}")
         return False
@@ -44,11 +59,14 @@ async def send_comment(
         return False
 
     comment_db_id = await _try_save_comment_record(
-        pool, account_id, chat_db_id, post_db_id, comment, db_log,
+        pool, account_id, chat_db_id, post_db_id, comment, post_text, db_log,
     )
 
+    if linked_entity is not None:
+        await _try_join_linked(client, linked_entity, db_log, channel_name)
+
     success = await _send_to_telegram(
-        client, linked_id, msg_id, comment, db_log, channel_name,
+        client, linked_id, linked_entity, msg_id, comment, db_log, channel_name,
     )
 
     if success:
@@ -59,22 +77,43 @@ async def send_comment(
     return success
 
 
+async def _try_join_linked(client, linked_entity, db_log: DBLogger, label: str) -> None:
+    try:
+        await client(JoinChannelRequest(linked_entity))
+        db_log.info("вступил_linked", f"[{label}] Вступил в linked-группу для комментария")
+    except UserAlreadyParticipantError:
+        pass
+    except Exception as e:
+        db_log.warning("вступление_linked", f"[{label}] Не удалось вступить в linked-группу: {e}")
+
+
 async def _try_save_comment_record(
     pool,
     account_id: UUID,
     chat_db_id: Optional[UUID],
     post_db_id: Optional[UUID],
     comment: str,
+    post_text: Optional[str],
     db_log: DBLogger,
 ):
     if pool is None:
         return None
     try:
         row = await repo.create_comment(
-            pool, account_id, chat_db_id, post_db_id, comment,
+            pool, account_id, chat_db_id, post_db_id, comment, post_text=post_text,
         )
         return row["id"]
     except Exception as e:
+        err = str(e)
+        if "post_text" in err and "does not exist" in err:
+            try:
+                row = await repo.create_comment_legacy(
+                    pool, account_id, chat_db_id, post_db_id, comment,
+                )
+                return row["id"]
+            except Exception as e2:
+                db_log.warning("ошибка_бд", f"Не удалось сохранить комментарий в БД: {e2}")
+                return None
         db_log.warning("ошибка_бд", f"Не удалось сохранить комментарий в БД: {e}")
         return None
 
@@ -97,7 +136,50 @@ async def _try_mark_failed(pool, comment_db_id, error_message: str, db_log: DBLo
         db_log.warning("ошибка_бд", f"Не удалось записать ошибку комментария в БД: {e}")
 
 
+def _is_permission_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _PERMISSION_ERRORS)
+
+
 async def _send_to_telegram(
+    client: TelegramClient,
+    linked_id: int,
+    linked_entity,
+    msg_id: int,
+    comment: str,
+    db_log: DBLogger,
+    label: str,
+) -> bool:
+    for attempt in range(2):
+        try:
+            await client.send_message(
+                entity=linked_id,
+                message=comment,
+                comment_to=msg_id,
+            )
+            db_log.info("комментарий_отправлен", f"[{label}] Отправлено: {comment[:60]}")
+            return True
+
+        except MsgIdInvalidError:
+            return await _send_via_forwarded_post(
+                client, linked_id, msg_id, comment, db_log, label,
+            )
+
+        except Exception as e:
+            if attempt == 0 and _is_permission_error(e) and linked_entity is not None:
+                db_log.warning(
+                    "нет_доступа_linked",
+                    f"[{label}] Нет доступа к linked-группе, пробую вступить: {e}",
+                )
+                await _try_join_linked(client, linked_entity, db_log, label)
+                continue
+            db_log.error("ошибка_отправки", f"[{label}] {e}")
+            return False
+
+    return False
+
+
+async def _send_via_forwarded_post(
     client: TelegramClient,
     linked_id: int,
     msg_id: int,
@@ -105,37 +187,23 @@ async def _send_to_telegram(
     db_log: DBLogger,
     label: str,
 ) -> bool:
-    try:
-        await client.send_message(
-            entity=linked_id,
-            message=comment,
-            comment_to=msg_id,
-        )
-        db_log.info("комментарий_отправлен", f"[{label}] Отправлено: {comment[:60]}")
-        return True
+    db_log.info("поиск_поста", f"[{label}] MsgIdInvalid — ищу пост в linked-группе")
+    async for msg in client.iter_messages(linked_id, limit=20):
+        if msg.fwd_from and msg.fwd_from.channel_post == msg_id:
+            try:
+                await client.send_message(
+                    entity=linked_id,
+                    message=comment,
+                    comment_to=msg.id,
+                )
+                db_log.info(
+                    "комментарий_отправлен",
+                    f"[{label}] Отправлено через linked id: {comment[:60]}",
+                )
+                return True
+            except Exception as e:
+                db_log.error("ошибка_отправки", f"[{label}] {e}")
+                return False
 
-    except MsgIdInvalidError:
-        db_log.info("поиск_поста", f"[{label}] MsgIdInvalid — ищу пост в linked-группе")
-        async for msg in client.iter_messages(linked_id, limit=20):
-            if msg.fwd_from and msg.fwd_from.channel_post == msg_id:
-                try:
-                    await client.send_message(
-                        entity=linked_id,
-                        message=comment,
-                        comment_to=msg.id,
-                    )
-                    db_log.info(
-                        "комментарий_отправлен",
-                        f"[{label}] Отправлено через linked id: {comment[:60]}",
-                    )
-                    return True
-                except Exception as e:
-                    db_log.error("ошибка_отправки", f"[{label}] {e}")
-                    return False
-
-        db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
-        return False
-
-    except Exception as e:
-        db_log.error("ошибка_отправки", f"[{label}] {e}")
-        return False
+    db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
+    return False
