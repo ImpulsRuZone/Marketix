@@ -13,6 +13,13 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 
+def _db_uuid(value: Optional[UUID]) -> Optional[str]:
+    """Some Supabase schemas store UUID columns as text — always pass str."""
+    if value is None:
+        return None
+    return str(value)
+
+
 # ──────────────────────────────────────────────
 # Accounts
 # ──────────────────────────────────────────────
@@ -73,7 +80,7 @@ async def create_account(
             INSERT INTO account_settings (account_id)
             VALUES ($1)
             ON CONFLICT (account_id) DO NOTHING
-        """, account["id"])
+        """, _db_uuid(account["id"]))
 
     return account
 
@@ -83,13 +90,13 @@ async def update_session_string(pool: asyncpg.Pool, account_id: UUID, session_st
         UPDATE accounts
         SET session_string = $1, updated_at = now()
         WHERE id = $2
-    """, session_string, account_id)
+    """, session_string, _db_uuid(account_id))
 
 
 async def update_account_status(pool: asyncpg.Pool, account_id: UUID, status: str) -> None:
     await pool.execute("""
         UPDATE accounts SET status = $1, updated_at = now() WHERE id = $2
-    """, status, account_id)
+    """, status, _db_uuid(account_id))
 
 
 # ──────────────────────────────────────────────
@@ -148,7 +155,7 @@ async def get_account_chats(pool: asyncpg.Pool, account_id: UUID) -> List[asyncp
         FROM account_chats ac
         JOIN target_chats tc ON tc.id = ac.chat_id
         WHERE ac.account_id = $1
-    """, account_id)
+    """, _db_uuid(account_id))
 
 
 async def upsert_account_chat(
@@ -172,7 +179,7 @@ async def upsert_account_chat(
                 last_join_attempt_at = now(),
                 joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
                 error_message        = EXCLUDED.error_message
-    """, account_id, chat_id, status_db, joined_at, error_message)
+    """, _db_uuid(account_id), _db_uuid(chat_id), status_db, joined_at, error_message)
 
 
 # ──────────────────────────────────────────────
@@ -192,7 +199,7 @@ async def upsert_post(
         ON CONFLICT (chat_id, telegram_post_id) DO UPDATE
             SET post_text = EXCLUDED.post_text
         RETURNING *
-    """, chat_id, telegram_post_id, post_text, post_date)
+    """, _db_uuid(chat_id), telegram_post_id, post_text, post_date)
 
 
 # ──────────────────────────────────────────────
@@ -210,7 +217,7 @@ async def create_comment(
         INSERT INTO comments (account_id, chat_id, post_id, generated_comment)
         VALUES ($1, $2, $3, $4)
         RETURNING *
-    """, account_id, chat_id, post_id, generated_comment)
+    """, _db_uuid(account_id), _db_uuid(chat_id), _db_uuid(post_id), generated_comment)
 
 
 async def mark_comment_sent(
@@ -222,7 +229,7 @@ async def mark_comment_sent(
         UPDATE comments
         SET status = 'sent', sent_comment = $1, sent_at = now()
         WHERE id = $2
-    """, sent_comment, comment_id)
+    """, sent_comment, _db_uuid(comment_id))
 
 
 async def mark_comment_failed(
@@ -234,7 +241,7 @@ async def mark_comment_failed(
         UPDATE comments
         SET status = 'failed', error_message = $1
         WHERE id = $2
-    """, error_message, comment_id)
+    """, error_message, _db_uuid(comment_id))
 
 
 async def get_comments_today_count(pool: asyncpg.Pool, account_id: UUID) -> int:
@@ -244,7 +251,7 @@ async def get_comments_today_count(pool: asyncpg.Pool, account_id: UUID) -> int:
         WHERE account_id = $1
           AND status = 'sent'
           AND sent_at >= date_trunc('day', now())
-    """, account_id)
+    """, _db_uuid(account_id))
     return row["cnt"] if row else 0
 
 
@@ -269,7 +276,7 @@ async def write_log(
         await pool.execute("""
             INSERT INTO logs (account_id, level, event_type, message, payload)
             VALUES ($1, $2, $3, $4, $5::jsonb)
-        """, account_id, level_db, event_type, message,
+        """, _db_uuid(account_id), level_db, event_type, message,
             json.dumps(payload if payload is not None else {}))
     except Exception as e:
         logger.error(f"Не удалось записать лог в БД: {e}")
