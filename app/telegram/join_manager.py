@@ -44,9 +44,16 @@ async def join_all_chats(
         db_log.info("менеджер_вступлений", "Активные целевые чаты не найдены")
         return
 
-    joined_chats = {
-        str(row["chat_id"]): row["status"]
-        for row in await repo.get_account_chats(pool, account_id)
+    account_chat_rows = await repo.get_account_chats(pool, account_id)
+    joined_chats = {str(row["chat_id"]): row["status"] for row in account_chat_rows}
+    skipped_chats = {
+        str(row["chat_id"])
+        for row in account_chat_rows
+        if row["status"] == "excluded"
+        or (
+            row["status"] == "failed"
+            and str(row.get("error_message") or "").startswith("[excluded]")
+        )
     }
 
     db_log.info("менеджер_вступлений", f"Проверяю {len(target_chats)} каналов для вступления")
@@ -56,12 +63,11 @@ async def join_all_chats(
             continue
 
         chat_db_id = str(chat["id"])
-        current_status = joined_chats.get(chat_db_id)
-
-        if current_status == "joined":
+        if chat_db_id in skipped_chats:
             continue
 
-        if current_status == "excluded":
+        current_status = joined_chats.get(chat_db_id)
+        if current_status == "joined":
             continue
 
         url = chat["chat_url"]
@@ -106,7 +112,7 @@ async def _join_one(
         db_log.error("ошибка_вступления", f"Не удалось найти канал {url}: {e}")
         await repo.upsert_account_chat(
             pool, account_id, chat_db_id, "failed", str(e),
-            chat_title=title, account_name=account_name,
+            account_name=account_name,
         )
         return False
 

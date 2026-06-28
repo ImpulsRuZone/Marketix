@@ -274,6 +274,7 @@ class AccountWorker:
         remove_monitored_channel(self._monitored_ids, channel)
 
         chat_url = f"@{channel_username}" if channel_username else None
+        db_saved = True
         try:
             await repo.record_channel_exclusion(
                 self.pool,
@@ -287,16 +288,17 @@ class AccountWorker:
                 account_name=self.name,
             )
         except Exception as e:
+            db_saved = False
             self.db_log.error(
                 "ошибка_бд",
                 f"[{channel_name}] Не удалось записать исключение канала в БД: {e}",
             )
-            return
 
         self.db_log.warning(
             "канал_исключён",
             f"[{channel_name}] Исключён из прослушивания для аккаунта «{self.name}»: "
-            f"{error_message}. Осталось каналов: {len(self._monitored_ids)}",
+            f"{error_message}. Осталось каналов: {len(self._monitored_ids)}"
+            + ("" if db_saved else " (только в памяти — проверьте БД)"),
         )
 
     async def _wait_if_sleeping(self) -> None:

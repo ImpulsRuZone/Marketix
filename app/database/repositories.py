@@ -172,7 +172,11 @@ async def get_excluded_target_chat_ids(
     rows = await pool.fetch("""
         SELECT chat_id
         FROM account_chats
-        WHERE account_id = $1 AND status = 'excluded'
+        WHERE account_id = $1
+          AND (
+              status = 'excluded'
+              OR (status = 'failed' AND error_message LIKE '[excluded]%')
+          )
     """, _db_uuid(account_id))
     return {str(row["chat_id"]) for row in rows}
 
@@ -259,7 +263,7 @@ async def _resolve_account_chat_names(
     chat_id: UUID,
     account_name: Optional[str] = None,
     chat_title: Optional[str] = None,
-) -> tuple[Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str]]:
     if account_name and chat_title:
         return account_name, chat_title
 
@@ -298,6 +302,39 @@ async def upsert_account_chat(
     )
 
     try:
+        await _upsert_account_chat_row(
+            pool, account_id, chat_id, status_db, joined_at, error_message,
+            account_name, chat_title,
+        )
+    except Exception as e:
+        err = str(e)
+        if status_db == "excluded" and "account_chats_status_check" in err:
+            marked = f"[excluded] {error_message}" if error_message else "[excluded]"
+            await _upsert_account_chat_row(
+                pool, account_id, chat_id, "failed", joined_at, marked,
+                account_name, chat_title, with_names=True,
+            )
+            return
+        if "account_name" not in err and "chat_title" not in err:
+            raise
+        await _upsert_account_chat_row(
+            pool, account_id, chat_id, status_db, joined_at, error_message,
+            None, None, with_names=False,
+        )
+
+
+async def _upsert_account_chat_row(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    chat_id: UUID,
+    status_db: str,
+    joined_at: Optional[datetime],
+    error_message: Optional[str],
+    account_name: Optional[str],
+    chat_title: Optional[str],
+    with_names: bool = True,
+) -> None:
+    if with_names and account_name is not None:
         await pool.execute("""
             INSERT INTO account_chats
                 (account_id, chat_id, account_name, chat_title,
@@ -312,19 +349,18 @@ async def upsert_account_chat(
                     error_message        = EXCLUDED.error_message
         """, _db_uuid(account_id), _db_uuid(chat_id), account_name, chat_title,
             status_db, joined_at, error_message)
-    except Exception as e:
-        if "account_name" not in str(e) and "chat_title" not in str(e):
-            raise
-        await pool.execute("""
-            INSERT INTO account_chats
-                (account_id, chat_id, status, last_join_attempt_at, joined_at, error_message)
-            VALUES ($1, $2, $3, now(), $4, $5)
-            ON CONFLICT (account_id, chat_id) DO UPDATE
-                SET status               = EXCLUDED.status,
-                    last_join_attempt_at = now(),
-                    joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
-                    error_message        = EXCLUDED.error_message
-        """, _db_uuid(account_id), _db_uuid(chat_id), status_db, joined_at, error_message)
+        return
+
+    await pool.execute("""
+        INSERT INTO account_chats
+            (account_id, chat_id, status, last_join_attempt_at, joined_at, error_message)
+        VALUES ($1, $2, $3, now(), $4, $5)
+        ON CONFLICT (account_id, chat_id) DO UPDATE
+            SET status               = EXCLUDED.status,
+                last_join_attempt_at = now(),
+                joined_at            = COALESCE(EXCLUDED.joined_at, account_chats.joined_at),
+                error_message        = EXCLUDED.error_message
+    """, _db_uuid(account_id), _db_uuid(chat_id), status_db, joined_at, error_message)
 
 
 # ──────────────────────────────────────────────
