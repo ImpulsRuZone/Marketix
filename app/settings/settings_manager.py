@@ -8,6 +8,8 @@ from uuid import UUID
 
 import asyncpg
 
+from app.database.db_types import as_db_uuid
+
 
 DEFAULT_SETTINGS = {
     "daily_comment_percent":  30,
@@ -39,7 +41,7 @@ async def get_settings(pool: asyncpg.Pool, account_id: UUID) -> dict:
     """Fetches settings for one account, falling back to defaults."""
     row = await pool.fetchrow(
         "SELECT * FROM account_settings WHERE account_id = $1",
-        account_id,
+        as_db_uuid(account_id),
     )
     return merge_with_defaults(row)
 
@@ -62,7 +64,7 @@ async def update_settings(
         INSERT INTO account_settings (account_id)
         VALUES ($1)
         ON CONFLICT (account_id) DO NOTHING
-    """, account_id)
+    """, as_db_uuid(account_id))
 
     fields = {
         "daily_comment_percent":  daily_comment_percent,
@@ -81,7 +83,7 @@ async def update_settings(
     set_clause = ", ".join(
         f"{col} = ${i + 2}" for i, col in enumerate(updates)
     )
-    values = [account_id] + list(updates.values())
+    values = [as_db_uuid(account_id)] + list(updates.values())
     await pool.execute(
         f"UPDATE account_settings SET {set_clause}, updated_at = now() WHERE account_id = $1",
         *values,

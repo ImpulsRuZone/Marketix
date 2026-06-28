@@ -12,6 +12,7 @@ from telethon.errors import MsgIdInvalidError
 from telethon.tl.functions.channels import GetFullChannelRequest
 
 from app.database import repositories as repo
+from app.database.db_types import as_db_uuid
 from app.logs.logger import DBLogger
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,11 @@ async def send_comment(
         return False
 
     comment_row = await repo.create_comment(
-        pool, account_id, chat_db_id, post_db_id, comment
+        pool,
+        account_id,
+        chat_db_id,
+        post_db_id,
+        comment,
     )
 
     success = await _try_send(
@@ -62,18 +67,19 @@ async def _try_send(
     linked_id: int,
     msg_id: int,
     comment: str,
-    comment_db_id: UUID,
+    comment_db_id,
     pool,
     db_log: DBLogger,
     label: str,
 ) -> bool:
+    comment_id = as_db_uuid(comment_db_id)
     try:
         await client.send_message(
             entity=linked_id,
             message=comment,
             comment_to=msg_id,
         )
-        await repo.mark_comment_sent(pool, comment_db_id, comment)
+        await repo.mark_comment_sent(pool, comment_id, comment)
         db_log.info("комментарий_отправлен", f"[{label}] Отправлено: {comment[:60]}")
         return True
 
@@ -87,19 +93,19 @@ async def _try_send(
                         message=comment,
                         comment_to=msg.id,
                     )
-                    await repo.mark_comment_sent(pool, comment_db_id, comment)
+                    await repo.mark_comment_sent(pool, comment_id, comment)
                     db_log.info("комментарий_отправлен", f"[{label}] Отправлено через linked id: {comment[:60]}")
                     return True
                 except Exception as e:
-                    await repo.mark_comment_failed(pool, comment_db_id, str(e))
+                    await repo.mark_comment_failed(pool, comment_id, str(e))
                     db_log.error("ошибка_отправки", f"[{label}] {e}")
                     return False
 
-        await repo.mark_comment_failed(pool, comment_db_id, "Пост не найден в linked-группе")
+        await repo.mark_comment_failed(pool, comment_id, "Пост не найден в linked-группе")
         db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
         return False
 
     except Exception as e:
-        await repo.mark_comment_failed(pool, comment_db_id, str(e))
+        await repo.mark_comment_failed(pool, comment_id, str(e))
         db_log.error("ошибка_отправки", f"[{label}] {e}")
         return False

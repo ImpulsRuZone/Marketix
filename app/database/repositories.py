@@ -5,19 +5,18 @@ Database repository layer. All SQL queries live here.
 import json
 import logging
 from datetime import datetime, date
-from typing import Optional, List
+from typing import Any, Optional, List
 from uuid import UUID
 
 import asyncpg
 
+from app.database.db_types import as_db_uuid
+
 logger = logging.getLogger(__name__)
 
 
-def _db_uuid(value: Optional[UUID]) -> Optional[str]:
-    """Some Supabase schemas store UUID columns as text — always pass str."""
-    if value is None:
-        return None
-    return str(value)
+def _db_uuid(value: Any) -> Optional[str]:
+    return as_db_uuid(value)
 
 
 # ──────────────────────────────────────────────
@@ -222,7 +221,7 @@ async def create_comment(
 
 async def mark_comment_sent(
     pool: asyncpg.Pool,
-    comment_id: UUID,
+    comment_id,
     sent_comment: str,
 ) -> None:
     await pool.execute("""
@@ -234,7 +233,7 @@ async def mark_comment_sent(
 
 async def mark_comment_failed(
     pool: asyncpg.Pool,
-    comment_id: UUID,
+    comment_id,
     error_message: str,
 ) -> None:
     await pool.execute("""
