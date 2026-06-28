@@ -36,10 +36,12 @@ async def send_comment(
     pool,
     db_log: DBLogger,
     post_text: Optional[str] = None,
+    account_name: Optional[str] = None,
+    chat_title: Optional[str] = None,
     event=None,
 ) -> CommentSendResult:
     """Posts comment to Telegram. DB logging is optional and never blocks sending."""
-    channel_name = getattr(channel_entity, "title", "?")
+    channel_name = chat_title or getattr(channel_entity, "title", "?")
 
     try:
         full = await client(GetFullChannelRequest(channel_entity))
@@ -61,6 +63,7 @@ async def send_comment(
 
     comment_db_id = await _try_save_comment_record(
         pool, account_id, chat_db_id, post_db_id, comment, post_text, db_log,
+        account_name=account_name, chat_title=channel_name,
     )
 
     if linked_entity is not None:
@@ -105,12 +108,15 @@ async def _try_save_comment_record(
     comment: str,
     post_text: Optional[str],
     db_log: DBLogger,
+    account_name: Optional[str] = None,
+    chat_title: Optional[str] = None,
 ):
     if pool is None:
         return None
     try:
         row = await repo.create_comment(
-            pool, account_id, chat_db_id, post_db_id, comment, post_text=post_text,
+            pool, account_id, chat_db_id, post_db_id, comment,
+            post_text=post_text, account_name=account_name, chat_title=chat_title,
         )
         return row["id"]
     except Exception as e:
@@ -119,6 +125,16 @@ async def _try_save_comment_record(
             try:
                 row = await repo.create_comment_legacy(
                     pool, account_id, chat_db_id, post_db_id, comment,
+                )
+                return row["id"]
+            except Exception as e2:
+                db_log.warning("ошибка_бд", f"Не удалось сохранить комментарий в БД: {e2}")
+                return None
+        if ("account_name" in err or "chat_title" in err) and "does not exist" in err:
+            try:
+                row = await repo.create_comment(
+                    pool, account_id, chat_db_id, post_db_id, comment,
+                    post_text=post_text,
                 )
                 return row["id"]
             except Exception as e2:

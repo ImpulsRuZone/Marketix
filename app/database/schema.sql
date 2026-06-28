@@ -100,6 +100,9 @@ create table if not exists comments (
     account_id         uuid not null references accounts(id) on delete cascade,
     chat_id            uuid references target_chats(id) on delete set null,
     post_id            uuid references posts(id) on delete set null,
+    account_name       text,
+    chat_title         text,
+    post_text          text,
     generated_comment  text,
     sent_comment       text,
     status             text default 'generated',  -- generated | sent | failed
@@ -107,6 +110,24 @@ create table if not exists comments (
     created_at         timestamptz default now(),
     sent_at            timestamptz
 );
+
+-- Supabase UI: open comments_readable (no UUID columns, Moscow send time).
+create or replace view comments_readable as
+select
+    to_char(
+        c.sent_at at time zone 'Europe/Moscow',
+        'DD.MM.YYYY HH24:MI:SS'
+    ) as sent_at_moscow,
+    coalesce(c.account_name, a.name) as account_name,
+    coalesce(c.chat_title, tc.title) as chat_title,
+    c.post_text,
+    c.generated_comment,
+    c.status,
+    c.sent_comment
+from comments c
+left join accounts a on a.id = c.account_id
+left join target_chats tc on tc.id = c.chat_id
+order by c.sent_at desc nulls last, c.created_at desc;
 
 -- ------------------------------------------
 -- logs

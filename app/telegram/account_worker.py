@@ -243,6 +243,8 @@ class AccountWorker:
             pool=self.pool,
             db_log=self.db_log,
             post_text=post_text,
+            account_name=self.name,
+            chat_title=channel_name,
             event=event,
         )
 
