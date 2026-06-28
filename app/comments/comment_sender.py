@@ -10,6 +10,7 @@ from uuid import UUID
 from telethon import TelegramClient
 from telethon.errors import MsgIdInvalidError, UserAlreadyParticipantError
 from telethon.tl.functions.channels import GetFullChannelRequest, JoinChannelRequest
+from telethon.tl.functions.messages import GetDiscussionMessageRequest
 
 from app.comments.send_result import CommentSendResult
 from app.database import repositories as repo
@@ -64,7 +65,14 @@ async def send_comment(
         await _try_join_linked(client, linked_entity, db_log, channel_name)
 
     success, exclude, error_message = await _send_to_telegram(
-        client, linked_id, linked_entity, msg_id, comment, db_log, channel_name,
+        client,
+        channel_entity,
+        linked_id,
+        linked_entity,
+        msg_id,
+        comment,
+        db_log,
+        channel_name,
     )
 
     if success:
@@ -135,12 +143,9 @@ async def _try_mark_failed(pool, comment_db_id, error_message: str, db_log: DBLo
         db_log.warning("ошибка_бд", f"Не удалось записать ошибку комментария в БД: {e}")
 
 
-def _is_permission_error(exc: Exception) -> bool:
-    return should_exclude_channel(exc)
-
-
 async def _send_to_telegram(
     client: TelegramClient,
+    channel_entity,
     linked_id: int,
     linked_entity,
     msg_id: int,
@@ -148,14 +153,19 @@ async def _send_to_telegram(
     db_log: DBLogger,
     label: str,
 ) -> Tuple[bool, bool, Optional[str]]:
-    """Returns (success, exclude_channel, error_message)."""
+    """
+    Returns (success, exclude_channel, error_message).
+
+    comment_to must target the channel post on the channel entity — Telethon
+    resolves the linked discussion group via GetDiscussionMessageRequest.
+    """
     last_error: Optional[str] = None
     last_exclude = False
 
     for attempt in range(2):
         try:
             await client.send_message(
-                entity=linked_id,
+                entity=channel_entity,
                 message=comment,
                 comment_to=msg_id,
             )
@@ -163,8 +173,9 @@ async def _send_to_telegram(
             return True, False, None
 
         except MsgIdInvalidError:
-            return await _send_via_forwarded_post(
-                client, linked_id, msg_id, comment, db_log, label,
+            return await _send_via_discussion_api(
+                client, channel_entity, linked_id, linked_entity,
+                msg_id, comment, db_log, label,
             )
 
         except Exception as e:
@@ -188,32 +199,87 @@ async def _send_to_telegram(
     return False, last_exclude, last_error
 
 
+async def _send_via_discussion_api(
+    client: TelegramClient,
+    channel_entity,
+    linked_id: int,
+    linked_entity,
+    msg_id: int,
+    comment: str,
+    db_log: DBLogger,
+    label: str,
+) -> Tuple[bool, bool, Optional[str]]:
+    """Resolve discussion message via Telegram API, then reply in linked group."""
+    db_log.info("поиск_поста", f"[{label}] Ищу пост в linked-группе через API")
+
+    try:
+        discussion = await client(
+            GetDiscussionMessageRequest(peer=channel_entity, msg_id=msg_id)
+        )
+        if discussion.messages:
+            group_msg = discussion.messages[0]
+            target = linked_entity or linked_id
+            await client.send_message(
+                entity=target,
+                message=comment,
+                reply_to=group_msg.id,
+            )
+            db_log.info(
+                "комментарий_отправлен",
+                f"[{label}] Отправлено через discussion API: {comment[:60]}",
+            )
+            return True, False, None
+    except Exception as e:
+        db_log.warning("поиск_поста", f"[{label}] GetDiscussionMessage не сработал: {e}")
+
+    return await _send_via_forwarded_post(
+        client, channel_entity, linked_id, msg_id, comment, db_log, label,
+    )
+
+
 async def _send_via_forwarded_post(
     client: TelegramClient,
+    channel_entity,
     linked_id: int,
     msg_id: int,
     comment: str,
     db_log: DBLogger,
     label: str,
 ) -> Tuple[bool, bool, Optional[str]]:
-    db_log.info("поиск_поста", f"[{label}] MsgIdInvalid — ищу пост в linked-группе")
-    async for msg in client.iter_messages(linked_id, limit=20):
-        if msg.fwd_from and msg.fwd_from.channel_post == msg_id:
-            try:
-                await client.send_message(
-                    entity=linked_id,
-                    message=comment,
-                    comment_to=msg.id,
-                )
-                db_log.info(
-                    "комментарий_отправлен",
-                    f"[{label}] Отправлено через linked id: {comment[:60]}",
-                )
-                return True, False, None
-            except Exception as e:
-                err = get_permission_error_text(e)
-                db_log.error("ошибка_отправки", f"[{label}] {e}")
-                return False, should_exclude_channel(e), err
+    """Scan linked group for forwarded channel post (fallback)."""
+    channel_id = getattr(channel_entity, "id", None)
+    db_log.info("поиск_поста", f"[{label}] Сканирую linked-группу (до 100 сообщений)")
 
-    db_log.warning("пост_не_найден", f"[{label}] Пост не найден в linked-группе")
+    async for msg in client.iter_messages(linked_id, limit=100):
+        if not msg.fwd_from:
+            continue
+        if msg.fwd_from.channel_post != msg_id:
+            continue
+        if channel_id and msg.fwd_from.from_id:
+            peer = msg.fwd_from.from_id
+            peer_id = getattr(peer, "channel_id", None)
+            if peer_id and peer_id != channel_id:
+                continue
+
+        try:
+            await client.send_message(
+                entity=linked_id,
+                message=comment,
+                reply_to=msg.id,
+            )
+            db_log.info(
+                "комментарий_отправлен",
+                f"[{label}] Отправлено через reply в linked-группе: {comment[:60]}",
+            )
+            return True, False, None
+        except Exception as e:
+            err = get_permission_error_text(e)
+            db_log.error("ошибка_отправки", f"[{label}] {e}")
+            return False, should_exclude_channel(e), err
+
+    db_log.warning(
+        "пост_не_найден",
+        f"[{label}] Пост id={msg_id} не найден в linked-группе "
+        f"(возможно, обсуждение ещё не создано или пост слишком старый)",
+    )
     return False, False, None
