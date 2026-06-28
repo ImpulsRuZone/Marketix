@@ -125,8 +125,8 @@ select
     c.status,
     c.sent_comment
 from comments c
-left join accounts a on a.id = c.account_id
-left join target_chats tc on tc.id = c.chat_id
+left join accounts a on a.id = c.account_id::uuid
+left join target_chats tc on tc.id = c.chat_id::uuid
 order by c.sent_at desc nulls last, c.created_at desc;
 
 -- ------------------------------------------

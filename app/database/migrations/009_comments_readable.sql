@@ -6,13 +6,13 @@ ALTER TABLE comments ADD COLUMN IF NOT EXISTS chat_title text;
 UPDATE comments c
 SET account_name = a.name
 FROM accounts a
-WHERE c.account_id = a.id
+WHERE c.account_id::uuid = a.id
   AND c.account_name IS NULL;
 
 UPDATE comments c
 SET chat_title = tc.title
 FROM target_chats tc
-WHERE c.chat_id = tc.id
+WHERE c.chat_id::uuid = tc.id
   AND c.chat_title IS NULL;
 
 CREATE OR REPLACE VIEW comments_readable AS
@@ -28,6 +28,6 @@ SELECT
     c.status,
     c.sent_comment
 FROM comments c
-LEFT JOIN accounts a ON a.id = c.account_id
-LEFT JOIN target_chats tc ON tc.id = c.chat_id
+LEFT JOIN accounts a ON a.id = c.account_id::uuid
+LEFT JOIN target_chats tc ON tc.id = c.chat_id::uuid
 ORDER BY c.sent_at DESC NULLS LAST, c.created_at DESC;
