@@ -189,24 +189,31 @@ class AccountWorker:
         )
         await asyncio.sleep(delay)
 
-        # Save post to DB
-        chat_row = await repo.upsert_target_chat(
-            self.pool,
-            chat_url=f"@{channel_username}" if channel_username else f"id:{channel.id}",
-            chat_id=channel.id,
-            username=channel_username,
-            title=channel_name,
-        )
+        chat_db_id = None
+        post_db_id = None
+        try:
+            chat_row = await repo.upsert_target_chat(
+                self.pool,
+                chat_url=f"@{channel_username}" if channel_username else f"id:{channel.id}",
+                chat_id=channel.id,
+                username=channel_username,
+                title=channel_name,
+            )
+            chat_db_id = chat_row["id"]
+            post_row = await repo.upsert_post(
+                self.pool,
+                chat_id=chat_db_id,
+                telegram_post_id=event.message.id,
+                post_text=post_text,
+                post_date=event.message.date or datetime.now(timezone.utc),
+            )
+            post_db_id = post_row["id"]
+        except Exception as e:
+            self.db_log.warning(
+                "ошибка_бд",
+                f"[{channel_name}] Не удалось сохранить пост в БД: {e}",
+            )
 
-        post_row = await repo.upsert_post(
-            self.pool,
-            chat_id=chat_row["id"],
-            telegram_post_id=event.message.id,
-            post_text=post_text,
-            post_date=event.message.date or datetime.now(timezone.utc),
-        )
-
-        # Generate comment
         try:
             comment = await generate_comment(
                 post_text,
@@ -216,15 +223,14 @@ class AccountWorker:
             self.db_log.error("ошибка_gpt", f"Ошибка GPT: {e}")
             return
 
-        # Send comment
         await send_comment(
             client=self.client,
             channel_entity=channel,
             msg_id=event.message.id,
             comment=comment,
             account_id=self.account_id,
-            chat_db_id=chat_row["id"],
-            post_db_id=post_row["id"],
+            chat_db_id=chat_db_id,
+            post_db_id=post_db_id,
             pool=self.pool,
             db_log=self.db_log,
         )

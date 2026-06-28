@@ -18,7 +18,10 @@ async def should_comment(
     account_id: UUID,
     settings: dict,
 ) -> bool:
-    today_count = await get_comments_today_count(pool, account_id)
+    try:
+        today_count = await get_comments_today_count(pool, account_id)
+    except Exception:
+        today_count = 0
 
     if today_count >= settings["max_comments_per_day"]:
         return False
