@@ -16,7 +16,7 @@ import logging
 
 from app.config import DATABASE_URL, get_telegram_api
 from app.database.supabase_client import init_pool, close_pool
-from app.database.repositories import get_active_accounts
+from app.database.repositories import get_active_accounts, sync_account_settings
 from app.telegram.account_worker import AccountWorker
 from app.logs.logger import setup_logging
 from app.startup_options import resolve_join_on_startup
@@ -69,6 +69,7 @@ async def main() -> None:
     pool = await init_pool(DATABASE_URL)
 
     try:
+        await sync_account_settings(pool)
         accounts = await get_active_accounts(pool)
         if not accounts:
             logger.warning(

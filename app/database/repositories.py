@@ -28,6 +28,7 @@ async def get_active_accounts(pool: asyncpg.Pool) -> List[asyncpg.Record]:
     return await pool.fetch("""
         SELECT
             a.*,
+            s.account_name AS settings_account_name,
             s.daily_comment_percent,
             s.max_comments_per_day,
             s.sleep_start_time,
@@ -39,6 +40,26 @@ async def get_active_accounts(pool: asyncpg.Pool) -> List[asyncpg.Record]:
         FROM accounts a
         LEFT JOIN account_settings s ON s.account_id = a.id
         WHERE a.status = 'active'
+    """)
+
+
+async def sync_account_settings(pool: asyncpg.Pool) -> None:
+    """Ensure every account has account_settings row with account_name."""
+    await pool.execute("""
+        INSERT INTO account_settings (account_id, account_name)
+        SELECT a.id, a.name
+        FROM accounts a
+        WHERE NOT EXISTS (
+            SELECT 1 FROM account_settings s WHERE s.account_id = a.id
+        )
+    """)
+    await pool.execute("""
+        UPDATE account_settings s
+        SET account_name = a.name, updated_at = now()
+        FROM accounts a
+        WHERE s.account_id = a.id
+          AND a.name IS NOT NULL
+          AND (s.account_name IS NULL OR s.account_name IS DISTINCT FROM a.name)
     """)
 
 
@@ -76,10 +97,12 @@ async def create_account(
 
         # Create default settings
         await conn.execute("""
-            INSERT INTO account_settings (account_id)
-            VALUES ($1)
-            ON CONFLICT (account_id) DO NOTHING
-        """, _db_uuid(account["id"]))
+            INSERT INTO account_settings (account_id, account_name)
+            VALUES ($1, $2)
+            ON CONFLICT (account_id) DO UPDATE
+                SET account_name = COALESCE(EXCLUDED.account_name, account_settings.account_name),
+                    updated_at = now()
+        """, _db_uuid(account["id"]), name)
 
     return account
 

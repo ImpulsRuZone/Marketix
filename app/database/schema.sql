@@ -33,6 +33,7 @@ create table if not exists accounts (
 create table if not exists account_settings (
     id                        uuid primary key default gen_random_uuid(),
     account_id                uuid not null references accounts(id) on delete cascade,
+    account_name              text,
     daily_comment_percent     integer default 30,
     max_comments_per_day      integer default 20,
     sleep_start_time          time,
@@ -161,6 +162,7 @@ alter table target_chats add column if not exists updated_at timestamptz default
 alter table account_chats add column if not exists updated_at timestamptz default now();
 alter table account_chats add column if not exists account_name text;
 alter table account_chats add column if not exists chat_title text;
+alter table account_settings add column if not exists account_name text;
 alter table logs alter column payload drop not null;
 alter table logs drop constraint if exists logs_level_check;
 alter table logs add constraint logs_level_check check (level in ('info', 'warning', 'error'));
