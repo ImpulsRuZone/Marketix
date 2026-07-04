@@ -3,18 +3,12 @@
     "name": "account1",
     "api_id": 123456,
     "api_hash": "your_api_hash_here",
-    "phone": "+79001234567",
-    "channels": []
+    "phone": "+79001234567"
   },
   {
     "name": "account2",
     "api_id": 654321,
     "api_hash": "another_api_hash_here",
-    "phone": "+79007654321",
-    "channels": [
-      "@moscow",
-      "@rozetked",
-      "@nexta_live"
-    ]
+    "phone": "+79007654321"
   }
 ]

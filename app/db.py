@@ -37,6 +37,31 @@ async def _ensure_tables(pool: asyncpg.Pool) -> None:
                 comment         TEXT
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_accounts (
+                name        TEXT PRIMARY KEY,
+                phone       TEXT DEFAULT '',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_channels (
+                id          SERIAL PRIMARY KEY,
+                account     TEXT NOT NULL,
+                channel     TEXT NOT NULL,
+                priority    TEXT DEFAULT 'Средний',
+                is_active   BOOLEAN DEFAULT TRUE,
+                note        TEXT DEFAULT '',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(account, channel)
+            )
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_account_channels_account
+            ON account_channels(account)
+        """)
 
 
 async def log_event(
@@ -87,3 +112,65 @@ async def log_comment(
             )
     except Exception as e:
         logger.error(f"db.log_comment error: {e}")
+
+
+async def upsert_account(pool, name: str, phone: str = "") -> None:
+    if pool is None:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO bot_accounts (name, phone)
+            VALUES ($1, $2)
+            ON CONFLICT (name) DO UPDATE
+            SET phone = EXCLUDED.phone,
+                updated_at = NOW()
+            """,
+            name,
+            phone,
+        )
+
+
+async def sync_channels_from_rows(pool, account: str, rows) -> None:
+    if pool is None:
+        return
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM account_channels WHERE account = $1", account)
+            for row in rows:
+                await conn.execute(
+                    """
+                    INSERT INTO account_channels (account, channel, priority, is_active, note)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    account,
+                    row.channel,
+                    row.priority,
+                    row.is_active,
+                    row.note,
+                )
+
+
+async def get_active_channels(pool, account: str) -> list[str]:
+    if pool is None:
+        return []
+
+    async with pool.acquire() as conn:
+        records = await conn.fetch(
+            """
+            SELECT channel
+            FROM account_channels
+            WHERE account = $1 AND is_active = TRUE
+            ORDER BY
+                CASE priority
+                    WHEN 'Высокий' THEN 1
+                    WHEN 'Средний' THEN 2
+                    WHEN 'Низкий' THEN 3
+                    ELSE 4
+                END,
+                channel
+            """,
+            account,
+        )
+    return [r["channel"] for r in records]

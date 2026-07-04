@@ -9,6 +9,7 @@ import logging
 from app.config import load_accounts, DATABASE_URL
 from app.db import get_pool
 from app.account_bot import AccountBot
+from app.channels_store import sync_accounts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +38,8 @@ async def main() -> None:
         logger.info("Подключение к БД установлено")
     else:
         logger.warning("DATABASE_URL не задан — логирование в БД отключено")
+
+    await sync_accounts(accounts, pool=pool)
 
     bots = [AccountBot(cfg, pool) for cfg in accounts]
 

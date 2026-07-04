@@ -2,3 +2,4 @@ telethon
 openai
 python-dotenv
 asyncpg
+openpyxl

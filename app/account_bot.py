@@ -14,7 +14,8 @@ from telethon.errors import MsgIdInvalidError
 
 from app.config import AccountConfig, DELAY_MIN, DELAY_MAX
 from app.ai import generate_comment
-from app.joiner import MY_CHANNELS, join_channels
+from app.joiner import join_channels
+from app.channels_store import resolve_channels_for_account
 from app.db import log_event, log_comment
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class AccountBot:
     def __init__(self, cfg: AccountConfig, pool):
         self.cfg = cfg
         self.pool = pool
-        self.channels: List[str] = cfg.channels if cfg.channels else MY_CHANNELS
+        self.channels: List[str] = []
         self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
         self._label = cfg.name
 
@@ -48,6 +49,21 @@ class AccountBot:
             account=self._label,
         )
 
+        self.channels = await resolve_channels_for_account(self.cfg, self.pool)
+        if not self.channels:
+            logger.error(
+                "[%s] Список каналов пуст. Заполните лист в %s и выполните: python -m app.channels_store",
+                self._label,
+                "data/channels_database.xlsx",
+            )
+            await log_event(
+                self.pool, "ERROR", "no_channels",
+                "Список каналов пуст — заполните Excel-лист аккаунта",
+                account=self._label,
+            )
+            return
+
+        logger.info("[%s] Загружено каналов: %s", self._label, len(self.channels))
         await join_channels(self.client, self.channels, pool=self.pool, account=self._label)
 
         self.client.add_event_handler(
