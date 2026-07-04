@@ -132,23 +132,25 @@ async def upsert_account(pool, name: str, phone: str = "") -> None:
 
 
 async def sync_channels_from_rows(pool, account: str, rows) -> None:
+    channels = [row.channel for row in rows if getattr(row, "is_active", True)]
+    await sync_channel_list(pool, account, channels)
+
+
+async def sync_channel_list(pool, account: str, channels: list[str]) -> None:
     if pool is None:
         return
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DELETE FROM account_channels WHERE account = $1", account)
-            for row in rows:
+            for channel in channels:
                 await conn.execute(
                     """
                     INSERT INTO account_channels (account, channel, priority, is_active, note)
-                    VALUES ($1, $2, $3, $4, $5)
+                    VALUES ($1, $2, 'Средний', TRUE, '')
                     """,
                     account,
-                    row.channel,
-                    row.priority,
-                    row.is_active,
-                    row.note,
+                    channel,
                 )
 
 

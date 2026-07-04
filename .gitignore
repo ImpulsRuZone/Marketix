@@ -1,7 +1,8 @@
 .env
 accounts.json
 data/sessions/
-data/channels_database.xlsx
+data/channels/*.txt
+!data/channels/*.example
 __pycache__/
 *.pyc
 *.session

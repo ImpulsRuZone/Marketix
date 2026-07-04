@@ -51,14 +51,15 @@ class AccountBot:
 
         self.channels = await resolve_channels_for_account(self.cfg, self.pool)
         if not self.channels:
+            path = f"data/channels/{self._label}.txt"
             logger.error(
-                "[%s] Список каналов пуст. Заполните лист в %s и выполните: python -m app.channels_store",
+                "[%s] Список каналов пуст. Добавьте каналы в файл: %s",
                 self._label,
-                "data/channels_database.xlsx",
+                path,
             )
             await log_event(
                 self.pool, "ERROR", "no_channels",
-                "Список каналов пуст — заполните Excel-лист аккаунта",
+                f"Список каналов пуст — заполните {path}",
                 account=self._label,
             )
             return
