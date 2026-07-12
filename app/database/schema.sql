@@ -155,7 +155,39 @@ create index if not exists idx_logs_created          on logs(created_at);
 create index if not exists idx_posts_chat            on posts(chat_id);
 
 -- ------------------------------------------
--- story_targets (mass-looking)
+-- masslook_groups (join groups, scan participants)
+-- ------------------------------------------
+create table if not exists masslook_groups (
+    id           uuid primary key default gen_random_uuid(),
+    group_url    text not null unique,
+    telegram_id  bigint,
+    username     text,
+    title        text,
+    is_active    boolean default true,
+    created_at   timestamptz default now(),
+    updated_at   timestamptz default now()
+);
+
+create table if not exists masslook_account_groups (
+    id                    uuid primary key default gen_random_uuid(),
+    account_id            uuid not null references accounts(id) on delete cascade,
+    group_id              uuid not null references masslook_groups(id) on delete cascade,
+    account_name          text,
+    group_title           text,
+    status                text default 'pending',
+    last_join_attempt_at  timestamptz,
+    joined_at             timestamptz,
+    error_message         text,
+    created_at            timestamptz default now(),
+    updated_at            timestamptz default now(),
+    unique (account_id, group_id)
+);
+
+create index if not exists idx_masslook_account_groups_account on masslook_account_groups(account_id);
+create index if not exists idx_masslook_groups_active on masslook_groups(is_active);
+
+-- ------------------------------------------
+-- story_targets (legacy: direct @username targets)
 -- ------------------------------------------
 create table if not exists story_targets (
     id           uuid primary key default gen_random_uuid(),
@@ -172,10 +204,13 @@ create table if not exists story_views (
     id              uuid primary key default gen_random_uuid(),
     account_id      uuid not null references accounts(id) on delete cascade,
     target_id       uuid references story_targets(id) on delete set null,
+    group_id        uuid references masslook_groups(id) on delete set null,
+    telegram_user_id bigint,
     account_name    text,
     target_username text,
     target_title    text,
     stories_count   integer default 0,
+    liked_count     integer default 0,
     max_story_id    integer,
     status          text default 'viewed',
     error_message   text,
@@ -201,6 +236,12 @@ alter table account_settings add column if not exists story_view_delay_min_secon
 alter table account_settings add column if not exists story_view_delay_max_seconds integer default 30;
 alter table account_settings add column if not exists masslook_cycle_pause_min_seconds integer default 300;
 alter table account_settings add column if not exists masslook_cycle_pause_max_seconds integer default 900;
+alter table account_settings add column if not exists masslook_participants_limit integer default 500;
+alter table account_settings add column if not exists masslook_like_enabled boolean default true;
+alter table account_settings add column if not exists story_reaction_emoji text default '❤️';
+alter table story_views add column if not exists group_id uuid references masslook_groups(id) on delete set null;
+alter table story_views add column if not exists telegram_user_id bigint;
+alter table story_views add column if not exists liked_count integer default 0;
 alter table logs alter column payload drop not null;
 alter table logs drop constraint if exists logs_level_check;
 alter table logs add constraint logs_level_check check (level in ('info', 'warning', 'error'));

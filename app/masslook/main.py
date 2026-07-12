@@ -1,14 +1,17 @@
 """
-Entry point for mass-looking (story viewing).
+Entry point for mass-looking.
+
+Аккаунт вступает в группы из masslook_groups, сканирует участников
+со сторис и ставит лайки.
 
 Usage:
     python -m app.masslook.main
 
-Enable per account in Supabase:
+Enable per account:
     UPDATE account_settings SET masslook_enabled = true WHERE account_id = '...';
 
-Add targets:
-    INSERT INTO story_targets (target_url) VALUES ('@username');
+Add groups:
+    INSERT INTO masslook_groups (group_url) VALUES ('@my_group');
 """
 
 import asyncio

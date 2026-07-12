@@ -26,6 +26,9 @@ DEFAULT_SETTINGS = {
     "story_view_delay_max_seconds":  30,
     "masslook_cycle_pause_min_seconds": 300,
     "masslook_cycle_pause_max_seconds": 900,
+    "masslook_participants_limit":       500,
+    "masslook_like_enabled":           True,
+    "story_reaction_emoji":              "❤️",
 }
 
 

@@ -48,8 +48,10 @@ app/
 
 masslook/
 ├── main.py                        # Точка входа масслукинга
-├── worker.py                      # Worker одного аккаунта
-├── story_viewer.py                # Просмотр сторис через Telethon
+├── worker.py                      # Worker: группы → участники → лайки
+├── group_joiner.py                # Вступление в группы
+├── participant_scanner.py         # Поиск участников со сторис
+├── story_viewer.py                # Просмотр и лайк сторис
 └── scheduler.py                   # Лимиты и окно сна
 ```
 
@@ -220,31 +222,33 @@ main.py
 | `posts` | Найденные посты |
 | `comments` | Сгенерированные и отправленные комментарии |
 | `logs` | Системные события |
-| `story_targets` | Цели масслукинга (@username) |
-| `story_views` | Лог просмотренных сторис |
+| `story_views` | Лог просмотров и лайков сторис |
+| `masslook_groups` | Группы для масслукинга |
+| `masslook_account_groups` | Статус вступления аккаунта в группу |
 
-## Масслукинг (просмотр сторис)
+## Масслукинг (группы → сторис → лайки)
 
-Отдельный режим: аккаунты автоматически просматривают сторис целевых пользователей/каналов.
+Аккаунт вступает в заданные группы, сканирует участников со сторис в профиле и ставит лайки.
 
-### 1. Миграция БД
+### 1. Миграции БД
 
 ```bash
 psql $DATABASE_URL -f app/database/migrations/011_masslook.sql
+psql $DATABASE_URL -f app/database/migrations/012_masslook_groups.sql
 ```
 
-### 2. Добавить цели
+### 2. Добавить группы
 
 ```sql
-INSERT INTO story_targets (target_url) VALUES
-  ('@username1'),
-  ('@username2');
+INSERT INTO masslook_groups (group_url) VALUES
+  ('@my_group'),
+  ('https://t.me/+invitehash');
 ```
 
 Или из файла:
 
 ```bash
-python3 scripts/import_story_targets.py targets.txt
+python3 scripts/import_masslook_groups.py groups.txt
 ```
 
 ### 3. Включить для аккаунта
@@ -254,7 +258,10 @@ UPDATE account_settings
 SET masslook_enabled = true,
     max_story_views_per_day = 100,
     story_view_delay_min_seconds = 5,
-    story_view_delay_max_seconds = 30
+    story_view_delay_max_seconds = 30,
+    masslook_participants_limit = 500,
+    masslook_like_enabled = true,
+    story_reaction_emoji = '❤️'
 WHERE account_id = '...';
 ```
 
@@ -264,18 +271,30 @@ WHERE account_id = '...';
 python3 -m app.masslook.main
 ```
 
-Systemd: `deploy/masslook.service` (отдельный сервис от нейрокомментинга).
+### Логика работы
+
+```
+masslook/main.py
+  └── для каждого аккаунта с masslook_enabled → MasslookWorker
+        ├── вступить в группы из masslook_groups
+        ├── для каждой группы: iter_participants (до N человек)
+        ├── если у участника есть сторис:
+        │     ├── просмотреть непрочитанные (ReadStories)
+        │     └── поставить лайк ❤️ (SendReaction)
+        └── пауза между циклами
+```
 
 | Поле | По умолчанию | Описание |
 |------|-------------|----------|
-| `masslook_enabled` | false | Включить масслукинг для аккаунта |
-| `max_story_views_per_day` | 100 | Макс. целей с просмотром в день |
-| `story_view_delay_min_seconds` | 5 | Мин. пауза между целями |
-| `story_view_delay_max_seconds` | 30 | Макс. пауза между целями |
-| `masslook_cycle_pause_min_seconds` | 300 | Мин. пауза между циклами |
-| `masslook_cycle_pause_max_seconds` | 900 | Макс. пауза между циклами |
+| `masslook_enabled` | false | Включить масслукинг |
+| `max_story_views_per_day` | 100 | Лимит обработанных пользователей в день |
+| `masslook_participants_limit` | 500 | Сколько участников сканировать в группе за цикл |
+| `masslook_like_enabled` | true | Ставить лайки на сторис |
+| `story_reaction_emoji` | ❤️ | Эмодзи для лайка |
+| `story_view_delay_min_seconds` | 5 | Мин. пауза между пользователями |
+| `story_view_delay_max_seconds` | 30 | Макс. пауза между пользователями |
 
-Логи пишутся в таблицу `story_views` и `logs` (event_type: `сторис_просмотрены`, `flood_wait` и т.д.).
+Логи: таблица `story_views` (status: `liked`, `viewed`, `skipped`, `failed`).
 
 ## Таблица нейрокомментинга
 

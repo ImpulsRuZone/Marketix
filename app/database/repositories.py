@@ -42,7 +42,10 @@ async def get_active_accounts(pool: asyncpg.Pool) -> List[asyncpg.Record]:
             s.story_view_delay_min_seconds,
             s.story_view_delay_max_seconds,
             s.masslook_cycle_pause_min_seconds,
-            s.masslook_cycle_pause_max_seconds
+            s.masslook_cycle_pause_max_seconds,
+            s.masslook_participants_limit,
+            s.masslook_like_enabled,
+            s.story_reaction_emoji
         FROM accounts a
         LEFT JOIN account_settings s ON s.account_id = a.id
         WHERE a.status = 'active'
@@ -490,9 +493,126 @@ async def get_comments_today_count(pool: asyncpg.Pool, account_id: UUID) -> int:
 
 
 # ──────────────────────────────────────────────
-# Story targets & views (mass-looking)
+# Mass-looking groups & story actions
 # ──────────────────────────────────────────────
 
+async def get_active_masslook_groups(pool: asyncpg.Pool) -> List[asyncpg.Record]:
+    return await pool.fetch("""
+        SELECT * FROM masslook_groups WHERE is_active = true ORDER BY group_url
+    """)
+
+
+async def get_joined_masslook_groups(pool: asyncpg.Pool, account_id: UUID) -> List[asyncpg.Record]:
+    return await pool.fetch("""
+        SELECT g.*
+        FROM masslook_groups g
+        JOIN masslook_account_groups ag ON ag.group_id = g.id
+        WHERE ag.account_id = $1
+          AND ag.status = 'joined'
+          AND g.is_active = true
+        ORDER BY g.group_url
+    """, _db_uuid(account_id))
+
+
+async def upsert_masslook_group(
+    pool: asyncpg.Pool,
+    group_url: str,
+    telegram_id: Optional[int] = None,
+    username: Optional[str] = None,
+    title: Optional[str] = None,
+) -> asyncpg.Record:
+    url = group_url.strip()
+    if not url.startswith("@") and not url.startswith("https://") and not url.startswith("id:"):
+        url = f"@{url.lstrip('@')}"
+
+    return await pool.fetchrow("""
+        INSERT INTO masslook_groups (group_url, telegram_id, username, title)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (group_url) DO UPDATE
+            SET telegram_id = COALESCE(EXCLUDED.telegram_id, masslook_groups.telegram_id),
+                username    = COALESCE(EXCLUDED.username, masslook_groups.username),
+                title       = COALESCE(EXCLUDED.title, masslook_groups.title),
+                updated_at  = now()
+        RETURNING *
+    """, url, telegram_id, username, title)
+
+
+async def get_masslook_account_groups(pool: asyncpg.Pool, account_id: UUID) -> List[asyncpg.Record]:
+    return await pool.fetch("""
+        SELECT * FROM masslook_account_groups WHERE account_id = $1
+    """, _db_uuid(account_id))
+
+
+async def upsert_masslook_account_group(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    group_id: UUID,
+    status: str,
+    error_message: Optional[str] = None,
+    joined_at: Optional[datetime] = None,
+    account_name: Optional[str] = None,
+    group_title: Optional[str] = None,
+) -> None:
+    status_db = status.lower()
+    if status_db not in ("pending", "joined", "failed", "requested"):
+        status_db = "pending"
+
+    await pool.execute("""
+        INSERT INTO masslook_account_groups
+            (account_id, group_id, account_name, group_title,
+             status, last_join_attempt_at, joined_at, error_message)
+        VALUES ($1, $2, $3, $4, $5, now(), $6, $7)
+        ON CONFLICT (account_id, group_id) DO UPDATE
+            SET status               = EXCLUDED.status,
+                account_name         = COALESCE(EXCLUDED.account_name, masslook_account_groups.account_name),
+                group_title          = COALESCE(EXCLUDED.group_title, masslook_account_groups.group_title),
+                last_join_attempt_at = now(),
+                joined_at            = COALESCE(EXCLUDED.joined_at, masslook_account_groups.joined_at),
+                error_message        = EXCLUDED.error_message,
+                updated_at           = now()
+    """, _db_uuid(account_id), _db_uuid(group_id), account_name, group_title,
+        status_db, joined_at, error_message)
+
+
+async def record_story_view(
+    pool: asyncpg.Pool,
+    account_id: UUID,
+    account_name: Optional[str],
+    target_username: Optional[str],
+    target_title: Optional[str],
+    stories_count: int,
+    *,
+    target_id: Optional[UUID] = None,
+    group_id: Optional[UUID] = None,
+    telegram_user_id: Optional[int] = None,
+    liked_count: int = 0,
+    max_story_id: Optional[int] = None,
+    status: str = "viewed",
+    error_message: Optional[str] = None,
+) -> None:
+    await pool.execute("""
+        INSERT INTO story_views
+            (account_id, target_id, group_id, telegram_user_id,
+             account_name, target_username, target_title,
+             stories_count, liked_count, max_story_id, status, error_message)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    """, _db_uuid(account_id), _db_uuid(target_id), _db_uuid(group_id),
+        telegram_user_id, account_name, target_username, target_title,
+        stories_count, liked_count, max_story_id, status, error_message)
+
+
+async def get_story_views_today_count(pool: asyncpg.Pool, account_id: UUID) -> int:
+    row = await pool.fetchrow("""
+        SELECT COUNT(*) as cnt
+        FROM story_views
+        WHERE account_id = $1
+          AND status IN ('viewed', 'liked')
+          AND created_at >= date_trunc('day', now())
+    """, _db_uuid(account_id))
+    return row["cnt"] if row else 0
+
+
+# Legacy helpers (direct @username targets — optional)
 async def get_active_story_targets(pool: asyncpg.Pool) -> List[asyncpg.Record]:
     return await pool.fetch("""
         SELECT * FROM story_targets WHERE is_active = true ORDER BY target_url
@@ -520,39 +640,6 @@ async def upsert_story_target(
                 updated_at  = now()
         RETURNING *
     """, url, telegram_id, username, title)
-
-
-async def record_story_view(
-    pool: asyncpg.Pool,
-    account_id: UUID,
-    target_id: UUID,
-    account_name: Optional[str],
-    target_username: Optional[str],
-    target_title: Optional[str],
-    stories_count: int,
-    max_story_id: Optional[int] = None,
-    status: str = "viewed",
-    error_message: Optional[str] = None,
-) -> None:
-    await pool.execute("""
-        INSERT INTO story_views
-            (account_id, target_id, account_name, target_username, target_title,
-             stories_count, max_story_id, status, error_message)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    """, _db_uuid(account_id), _db_uuid(target_id), account_name,
-        target_username, target_title, stories_count, max_story_id,
-        status, error_message)
-
-
-async def get_story_views_today_count(pool: asyncpg.Pool, account_id: UUID) -> int:
-    row = await pool.fetchrow("""
-        SELECT COUNT(*) as cnt
-        FROM story_views
-        WHERE account_id = $1
-          AND status = 'viewed'
-          AND created_at >= date_trunc('day', now())
-    """, _db_uuid(account_id))
-    return row["cnt"] if row else 0
 
 
 # ──────────────────────────────────────────────
