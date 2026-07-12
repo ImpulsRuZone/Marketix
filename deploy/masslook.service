@@ -1,0 +1,15 @@
+[Unit]
+Description=Marketix Mass-looking (Telegram story viewer)
+After=network.target
+
+[Service]
+Type=simple
+User=marketix
+WorkingDirectory=/opt/marketix
+EnvironmentFile=/opt/marketix/.env
+ExecStart=/opt/marketix/venv/bin/python -m app.masslook.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
