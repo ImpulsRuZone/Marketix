@@ -187,6 +187,56 @@ async def deactivate_target_chat(
         )
 
 
+async def replace_target_chats(pool: asyncpg.Pool, channels: List[dict]) -> dict:
+    """
+    Replace active channel list:
+      1. Deactivate all current channels (except auto-linked id:… rows)
+      2. Clear account_chats for deactivated channels
+      3. Upsert new channels as active
+    """
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            deactivate_result = await conn.execute("""
+                UPDATE target_chats
+                SET is_active = false, updated_at = now()
+                WHERE chat_url NOT LIKE 'id:%'
+            """)
+            deactivated = int(deactivate_result.split()[-1])
+
+            delete_result = await conn.execute("""
+                DELETE FROM account_chats
+                WHERE chat_id IN (
+                    SELECT id FROM target_chats
+                    WHERE is_active = false AND chat_url NOT LIKE 'id:%'
+                )
+            """)
+            account_chats_cleared = int(delete_result.split()[-1])
+
+            inserted = 0
+            for channel in channels:
+                await conn.fetchrow("""
+                    INSERT INTO target_chats (chat_url, username, title, type, is_active)
+                    VALUES ($1, $2, $3, 'channel', true)
+                    ON CONFLICT (chat_url) DO UPDATE
+                        SET username  = COALESCE(EXCLUDED.username, target_chats.username),
+                            title     = EXCLUDED.title,
+                            type      = 'channel',
+                            is_active = true,
+                            updated_at = now()
+                """,
+                    channel["chat_url"],
+                    channel.get("username"),
+                    channel.get("title"),
+                )
+                inserted += 1
+
+    return {
+        "deactivated": deactivated,
+        "account_chats_cleared": account_chats_cleared,
+        "inserted": inserted,
+    }
+
+
 async def get_excluded_target_chat_ids(
     pool: asyncpg.Pool,
     account_id: UUID,
