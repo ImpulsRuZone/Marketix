@@ -212,3 +212,34 @@ main.py
 | `posts` | Найденные посты |
 | `comments` | Сгенерированные и отправленные комментарии |
 | `logs` | Системные события |
+
+## Таблица нейрокомментинга
+
+В Supabase удобно смотреть представление **`comments_readable`** — без UUID, время отправки в Москве:
+
+| Колонка | Описание |
+|---------|----------|
+| `sent_at_moscow` | Время отправки (МСК) |
+| `account_name` | Имя аккаунта |
+| `chat_title` | Название канала |
+| `post_text` | Текст поста |
+| `generated_comment` | Сгенерированный GPT комментарий |
+| `status` | `sent` / `failed` / `generated` |
+| `sent_comment` | Фактически отправленный текст |
+
+Экспорт из Supabase (Table Editor → Export → SQL) можно превратить в CSV для Excel / Google Sheets:
+
+```bash
+python3 scripts/sql_comments_to_csv.py exports/neurocommenting/comments_rows.sql
+```
+
+Результат: `exports/neurocommenting/neurocommenting_table.csv`.
+
+Текущий снимок (422 записи, июнь–июль 2026):
+
+| Показатель | Значение |
+|------------|----------|
+| Отправлено | 267 |
+| Ошибка | 153 |
+| Сгенерировано (не отправлено) | 2 |
+| Аккаунты | «Аккаунд с Апи Айди» (290), +77086215613 (132) |
