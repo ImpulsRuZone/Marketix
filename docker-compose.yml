@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    # For interactive account login (first-time auth), override the command:
+    #   docker compose run --rm bot python -m app.telegram.account_login
