@@ -9,6 +9,18 @@ from app.config import OPENAI_API_KEY, DEFAULT_GPT_PROMPT, MAX_COMMENT_LENGTH
 _client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 
+def _truncate_comment(text: str, max_len: int) -> str:
+    """Cut to max_len without breaking mid-word when possible."""
+    text = (text or "").strip()
+    if max_len <= 0 or len(text) <= max_len:
+        return text
+    cut = text[:max_len].rstrip()
+    # Prefer last whitespace so we don't end on "уж н"
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0].rstrip()
+    return cut
+
+
 async def generate_comment(post_text: str, account_prompt: str | None = None) -> str:
     """
     Generates a comment.
@@ -22,8 +34,8 @@ async def generate_comment(post_text: str, account_prompt: str | None = None) ->
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": post_text[:1000]},
         ],
-        max_tokens=200,
+        max_tokens=400,
         temperature=0.9,
     )
     comment = response.choices[0].message.content.strip()
-    return comment[:MAX_COMMENT_LENGTH]
+    return _truncate_comment(comment, MAX_COMMENT_LENGTH)

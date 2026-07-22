@@ -17,7 +17,7 @@ DEFAULT_GPT_PROMPT: str = os.getenv(
     "Длина комментария не более 7 слов.",
 )
 
-MAX_COMMENT_LENGTH: int = int(os.getenv("MAX_COMMENT_LENGTH", 200))
+MAX_COMMENT_LENGTH: int = int(os.getenv("MAX_COMMENT_LENGTH", 500))
 
 # Minimum post length to consider for commenting
 MIN_POST_LENGTH: int = int(os.getenv("MIN_POST_LENGTH", 50))
