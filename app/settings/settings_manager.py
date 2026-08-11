@@ -16,7 +16,7 @@ DEFAULT_SETTINGS = {
     "max_comments_per_day":   20,
     "sleep_start_time":       None,
     "sleep_end_time":         None,
-    "timezone":               "UTC",
+    "timezone":               "Europe/Moscow",
     "join_delay_min_seconds": 120,
     "join_delay_max_seconds": 600,
     "is_active":              True,

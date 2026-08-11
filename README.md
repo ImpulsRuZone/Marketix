@@ -180,7 +180,7 @@ docker compose up -d
 | `max_comments_per_day` | 20 | Максимум комментариев в день |
 | `sleep_start_time` | null | Начало "сна" (например `23:00`) |
 | `sleep_end_time` | null | Конец "сна" (например `08:00`) |
-| `timezone` | UTC | Временная зона (например `Europe/Moscow`) |
+| `timezone` | Europe/Moscow | Временная зона для режима сна |
 | `join_delay_min_seconds` | 120 | Мин. задержка между вступлениями |
 | `join_delay_max_seconds` | 600 | Макс. задержка между вступлениями |
 | `is_active` | true | Вкл/выкл аккаунт без удаления |

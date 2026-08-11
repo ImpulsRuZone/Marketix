@@ -12,7 +12,7 @@ except ImportError:
 def is_sleep_time(
     sleep_start: Optional[time],
     sleep_end: Optional[time],
-    timezone: str = "UTC",
+    timezone: str = "Europe/Moscow",
 ) -> bool:
     """
     Returns True if the current local time (in `timezone`) falls within
@@ -40,7 +40,7 @@ def is_sleep_time(
 
 def seconds_until_wake(
     sleep_end: Optional[time],
-    timezone: str = "UTC",
+    timezone: str = "Europe/Moscow",
 ) -> int:
     """Returns seconds until sleep_end in the given timezone."""
     if sleep_end is None:
