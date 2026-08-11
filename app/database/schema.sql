@@ -38,7 +38,7 @@ create table if not exists account_settings (
     max_comments_per_day      integer default 20,
     sleep_start_time          time,
     sleep_end_time            time,
-    timezone                  text default 'UTC',
+    timezone                  text default 'Europe/Moscow',
     join_delay_min_seconds    integer default 120,
     join_delay_max_seconds    integer default 600,
     is_active                 boolean default true,
