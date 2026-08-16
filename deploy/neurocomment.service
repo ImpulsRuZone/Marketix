@@ -1,0 +1,25 @@
+[Unit]
+Description=Neurocomment Telegram Bot
+Documentation=https://github.com/ImpulsRuZone/Marketix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/neurocomment
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/neurocomment/.env
+ExecStart=/usr/bin/python3 -m app.main
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=30
+
+# Логи: journalctl -u neurocomment -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neurocomment
+
+[Install]
+WantedBy=multi-user.target
