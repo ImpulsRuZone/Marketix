@@ -93,13 +93,31 @@ python3 -m app.telegram.account_login
 
 ### 5. Добавить каналы для слежения
 
-В таблице `target_chats` добавить каналы:
+Список каналов хранится в таблице `target_chats`. Актуальная база авто/мото-каналов лежит в `seeds/channels/` (188 каналов).
+
+**Обновить каналы в Supabase (заменить старый список):**
+
+```bash
+# Вариант 1: SQL-миграция в Supabase SQL Editor
+# app/database/migrations/011_replace_target_chats.sql
+
+# Вариант 2: скрипт (нужен DATABASE_URL в .env)
+python3 scripts/import_channels_from_csv.py
+
+# Проверка без записи в БД
+python3 scripts/import_channels_from_csv.py --dry-run
+```
+
+После обновления перезапустите бота с `--join`, чтобы аккаунты вступили в новые каналы:
+
+```bash
+python3 -m app.main --join
+```
+
+Вручную добавить один канал:
 
 ```sql
-INSERT INTO target_chats (chat_url) VALUES
-  ('@moscow'),
-  ('@rozetked'),
-  ('@nexta_live');
+INSERT INTO target_chats (chat_url) VALUES ('@moscow');
 ```
 
 ### 6. Запустить бота
@@ -207,8 +225,39 @@ main.py
 |---------|----------|
 | `accounts` | Telegram-аккаунты (session, proxy, prompt) |
 | `account_settings` | Настройки лимитов и сна |
-| `target_chats` | Целевые каналы |
+| `target_chats` | Целевые каналы (см. `seeds/channels/target_channels.txt`) |
 | `account_chats` | Статус вступления аккаунта в канал |
 | `posts` | Найденные посты |
 | `comments` | Сгенерированные и отправленные комментарии |
 | `logs` | Системные события |
+
+## Таблица нейрокомментинга
+
+В Supabase удобно смотреть представление **`comments_readable`** — без UUID, время отправки в Москве:
+
+| Колонка | Описание |
+|---------|----------|
+| `sent_at_moscow` | Время отправки (МСК) |
+| `account_name` | Имя аккаунта |
+| `chat_title` | Название канала |
+| `post_text` | Текст поста |
+| `generated_comment` | Сгенерированный GPT комментарий |
+| `status` | `sent` / `failed` / `generated` |
+| `sent_comment` | Фактически отправленный текст |
+
+Экспорт из Supabase (Table Editor → Export → SQL) можно превратить в CSV для Excel / Google Sheets:
+
+```bash
+python3 scripts/sql_comments_to_csv.py exports/neurocommenting/comments_rows.sql
+```
+
+Результат: `exports/neurocommenting/neurocommenting_table.csv`.
+
+Текущий снимок (422 записи, июнь–июль 2026):
+
+| Показатель | Значение |
+|------------|----------|
+| Отправлено | 267 |
+| Ошибка | 153 |
+| Сгенерировано (не отправлено) | 2 |
+| Аккаунты | «Аккаунд с Апи Айди» (290), +77086215613 (132) |
