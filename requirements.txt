@@ -1,0 +1,7 @@
+telethon
+openai
+asyncpg
+python-dotenv
+pytz
+PySocks
+python-socks[asyncio]
